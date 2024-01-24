@@ -321,11 +321,18 @@ def make_variations(cells):
 
 
 class Piece:
-    def __init__(self, id, cells):
-        self.id = id
-        self.cells = make_cells(id, cells)
-        self.points = number_of_points(self.cells)
-        self.variations = make_variations(self.cells)
+    """
+    A piece that gets added to the puzzle.
+ 
+    Attributes:
+        points (int): metric for trimming the search.
+        variations (list[list[((x, y), id)]]:
+            all the ways the piece can be rotated and reflected.
+    """
+    def __init__(self, id, coords):
+        cells = make_cells(id, coords)
+        self.points = number_of_points(cells)
+        self.variations = make_variations(cells)
 
 
 # The four pieces of the puzzle.
