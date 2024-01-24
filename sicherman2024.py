@@ -28,7 +28,14 @@ NORTHEAST = 5
 
 NUM_DIRECTIONS = 6
 
-DIRECTION_NAME = ["north", "northwest", "southwest", "south", "southeast", "northeast"]
+DIRECTION_NAME = [
+    "north",
+    "northwest",
+    "southwest",
+    "south",
+    "southeast",
+    "northeast",
+]
 
 # The opposite direction.
 # NORTH -> SOUTH, SOUTHWEST -> NORTHEAST, etc.
@@ -38,7 +45,14 @@ OPPOSITE_DIRECTION = [SOUTH, SOUTHEAST, NORTHEAST, NORTH, NORTHWEST, SOUTHWEST]
 CLOCKWISE_DIRECTION = [NORTHWEST, SOUTHWEST, SOUTH, SOUTHEAST, NORTHEAST, NORTH]
 
 # A left turn
-COUNTERCLOCKWISE_DIRECTION = [NORTHEAST, NORTH, NORTHWEST, SOUTHWEST, SOUTH, SOUTHEAST]
+COUNTERCLOCKWISE_DIRECTION = [
+    NORTHEAST,
+    NORTH,
+    NORTHWEST,
+    SOUTHWEST,
+    SOUTH,
+    SOUTHEAST,
+]
 
 
 # Puzzle pieces are represented by lists, or tuples where appropriate,
@@ -394,7 +408,10 @@ def find_joins(piece0, pieces, point_limit):
                     if (
                         not contains_duplicate(joined)
                         and not has_triangular_hole(joined)
-                        and (point_limit is None or how_convex(joined) <= point_limit)
+                        and (
+                            point_limit is None
+                            or how_convex(joined) <= point_limit
+                        )
                     ):
                         new_pieces.append(joined)
 
