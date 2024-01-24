@@ -1,10 +1,10 @@
 # This progam finds the solution to George Sicherman's 2024 New Year Puzzle
 # See https://sicherman.net/2024/2024.html
 
+import cProfile
 import math
 import time
 from PIL import Image, ImageDraw, ImageFont
-import cProfile
 
 # I need a coordinate system for moving triangles around the plane.
 # I choose a triangular tiling with the Archimedian coloring 121212, see
@@ -68,29 +68,29 @@ def points_up(x, y):
     return (x + y) % 2 == 0
 
 
-def adjacent_cell(xy, dir):
+def adjacent_cell(xy, direction):
     """Returns the (x, y) coordinates of the adjacent cell in the given
     direction. Raises an exception we cannot go in that direction from xy.
     """
     x, y = xy
     if points_up(x, y):
         # Upward pointing triangle
-        if dir == NORTHEAST:
+        if direction == NORTHEAST:
             return (x + 1, y)
-        if dir == NORTHWEST:
+        if direction == NORTHWEST:
             return (x - 1, y)
-        if dir == SOUTH:
+        if direction == SOUTH:
             return (x, y + 1)
     else:
         # Downward pointing triangle
-        if dir == SOUTHEAST:
+        if direction == SOUTHEAST:
             return (x + 1, y)
-        if dir == SOUTHWEST:
+        if direction == SOUTHWEST:
             return (x - 1, y)
-        if dir == NORTH:
+        if direction == NORTH:
             return (x, y - 1)
 
-    raise RuntimeError("Cannot move {}".format(DIRECTION_NAME[dir]))
+    raise RuntimeError(f"Cannot move {DIRECTION_NAME[direction]}")
 
 
 def adjacent(xy):
@@ -199,7 +199,7 @@ def number_of_points(piece):
 
     # Now count the number of points.
     points = sum(1 if v == 2 else 3 if v == 3 else 0 for v in border.values())
-    for b in border.keys():
+    for b in border:
         for a, a_dir in adjacent(b):
             if a in border:
                 # b and a are two adjacent border cells.
@@ -335,8 +335,8 @@ class Piece:
             all the ways the piece can be rotated and reflected.
     """
 
-    def __init__(self, id, coords):
-        cells = make_cells(id, coords)
+    def __init__(self, piece_id, coords):
+        cells = make_cells(piece_id, coords)
         self.points = number_of_points(cells)
         self.variations = make_variations(cells)
 
@@ -350,7 +350,7 @@ P2 = Piece(2, [(1, 1), (2, 0), (2, 1), (3, 1), (4, 1)])
 P3 = Piece(3, [(1, 0), (2, 0), (2, 1), (3, 1), (4, 0), (4, 1)])
 
 # The colors for the pieces are chosen somewhat subjectively.
-COLORS = ["hsl({}, 70%, 50%)".format(hue) for hue in [0, 60, 150, 270]]
+COLORS = [f"hsl({hue}, 70%, 50%)" for hue in [0, 60, 150, 270]]
 
 
 def border_table(piece):
@@ -369,12 +369,12 @@ def border_table(piece):
         while examine:
             e = examine.pop()
             visited.add(e)
-            for xy, dir in adjacent(e):
+            for xy, direction in adjacent(e):
                 if xy in in_piece:
                     if not xy in visited:
                         examine.add(xy)
                 else:
-                    result[dir].append(e)
+                    result[direction].append(e)
 
     return result
 
@@ -401,15 +401,15 @@ def find_joins(piece0, pieces, point_limit):
     for piece1 in pieces.variations:
         bt1 = border_table(piece1)
 
-        for dir in range(NUM_DIRECTIONS):
-            for cell0 in bt0[dir]:
-                for cell1 in bt1[OPPOSITE_DIRECTION[dir]]:
+        for direction in range(NUM_DIRECTIONS):
+            for cell0 in bt0[direction]:
+                for cell1 in bt1[OPPOSITE_DIRECTION[direction]]:
                     # The two pieces can by stuck together at cell0 and cell1.
 
                     # We will renumber piece1 so that cell1 has the
                     # coordinates (x, y)
 
-                    x, y = adjacent_cell(cell0, dir)
+                    x, y = adjacent_cell(cell0, direction)
                     dx = x - cell1[0]
                     dy = y - cell1[1]
 
@@ -484,6 +484,7 @@ def has_triangular_hole(piece):
 
 
 class Finder:
+    """Class wrapper to allow assemble_pieces to have global variables."""
     def __init__(self):
         # The process for generating candidates generates duplicates.
         # Since testing the candidates is expensive, we use this table
@@ -513,7 +514,7 @@ class Finder:
                     self._solutions.append(candidate)
             self._num_candidates += 1
             if self._num_candidates >= self._next_alert:
-                print("Evalated {}".format(self._num_candidates))
+                print(f"Evaluated {self._num_candidates}")
                 self._next_alert = self._num_candidates + self._alert_every
                 # self._stop = True
 
@@ -552,7 +553,7 @@ class Finder:
                 a.close()
 
         elapsed_minutes = int(round((time.time() - start_time) / 60.0))
-        print("Solution took {} minutes".format(elapsed_minutes))
+        print(f"Solution took {elapsed_minutes} minutes")
 
 
 # Draws a list of cells, returning a PIL image
