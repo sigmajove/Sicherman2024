@@ -63,14 +63,15 @@ COUNTERCLOCKWISE_DIRECTION = [
 # us parse the final result.
 
 
-# Returns whether the triangle at (x, y) is up-pointing.
 def points_up(x, y):
+    """Returns whether the triangle at (x, y) is up-pointing."""
     return (x + y) % 2 == 0
 
 
-# Returns the (x, y) coordinates of the adjacent cell in the given direction.
-# Raises an exception we cannot go in that direction from xy.
 def adjacent_cell(xy, dir):
+    """Returns the (x, y) coordinates of the adjacent cell in the given
+    direction. Raises an exception we cannot go in that direction from xy.
+    """
     x, y = xy
     if points_up(x, y):
         # Upward pointing triangle
@@ -92,9 +93,10 @@ def adjacent_cell(xy, dir):
     raise RuntimeError("Cannot move {}".format(DIRECTION_NAME[dir]))
 
 
-# Returns information about the three cells that are adjacent to xy.
-# For each adjacent cell, returns [(x, y), direction]
 def adjacent(xy):
+    """Returns information about the three cells that are adjacent to xy.
+    For each adjacent cell, returns [(x, y), direction]
+    """
     x, y = xy
     if points_up(x, y):
         yield [(x + 1, y), NORTHEAST]
@@ -106,9 +108,10 @@ def adjacent(xy):
         yield [(x, y - 1), NORTH]
 
 
-# Returns the three floating point coordinates of the vertices of the triangle.
-# Intended for use with drawing packages.
 def vertices(xy):
+    """Returns the three floating point coordinates of the vertices of the
+    triangle. Intended for use with drawing packages.
+    """
     x, y = xy
 
     side = 100  # width of a trianglar cell in pixels
@@ -129,8 +132,8 @@ def vertices(xy):
     )
 
 
-# Returns a canonical, hashable, representation of a list of cells.
 def normalize(cells):
+    """Returns a canonical, hashable, representation of a list of cells."""
     min_x = min(c[0][0] for c in cells)
     min_y = min(c[0][1] for c in cells)
 
@@ -146,9 +149,10 @@ def normalize(cells):
     return tuple(renumbered)
 
 
-# Returns the cell rotated 60 degrees (counterclockwise) around the
-# north vertex of the triangle with coordinates (0, 0).
 def rotate_cell(xy):
+    """Returns the cell rotated 60 degrees (counterclockwise) around the
+    north vertex of the triangle with coordinates (0, 0).
+    """
     x, y = xy
     # It took me a couple of days to discover this formula.
     # I don't have a simple explanation for why it works.
@@ -156,19 +160,19 @@ def rotate_cell(xy):
     return (y - (-x - y - 1) // 2, (y - x) // 2)
 
 
-# Returns the cell reflected about the y-axis.
 def mirror_cell(xy):
+    """Returns the cell reflected about the y-axis."""
     x, y = xy
     return (-x, y)
 
 
-# Rotates a piece 60 degrees counterclockwise
 def rotate(piece):
+    """Rotates a piece 60 degrees counterclockwise"""
     return normalize([[rotate_cell(p[0]), p[1]] for p in piece])
 
 
-# Creates a mirror image of a piece by flipping it on the y axis
 def flip(piece):
+    """Creates a mirror image of a piece by flipping it on the y axis"""
     return normalize([[mirror_cell(p[0]), p[1]] for p in piece])
 
 
@@ -301,16 +305,17 @@ def how_convex(piece):
     return result
 
 
-# Attaches the piece_id to each pair.
 def make_cells(piece_id, pairs):
+    """Attaches the piece_id to each pair."""
     result = [(p, piece_id) for p in pairs]
     return result
 
 
-# Returns a list of the twelve variations of the piece, considering rotations
-# and reflections. There will be no duplicates in this list because none of
-# the puzzle pieces are symmetrical.
 def make_variations(cells):
+    """Returns a list of the twelve variations of the piece, considering
+    rotations and reflections. There will be no duplicates in this list
+    because none of the puzzle pieces are symmetrical.
+    """
     result = [cells.copy()]
     for _ in range(5):
         result.append(rotate(result[-1]))
@@ -323,12 +328,13 @@ def make_variations(cells):
 class Piece:
     """
     A piece that gets added to the puzzle.
- 
+
     Attributes:
         points (int): metric for trimming the search.
         variations (list[list[((x, y), id)]]:
             all the ways the piece can be rotated and reflected.
     """
+
     def __init__(self, id, coords):
         cells = make_cells(id, coords)
         self.points = number_of_points(cells)
@@ -347,11 +353,12 @@ P3 = Piece(3, [(1, 0), (2, 0), (2, 1), (3, 1), (4, 0), (4, 1)])
 COLORS = ["hsl({}, 70%, 50%)".format(hue) for hue in [0, 60, 150, 270]]
 
 
-# Locates all the cells in this piece that are adjacent to one or
-# more cells not in the piece. Returns the results as a table. For each
-# direction d, border[d] contains the list of cells that are adjacent
-# to a non-piece cell in the direction d.
 def border_table(piece):
+    """Locates all the cells in this piece that are adjacent to one or
+    more cells not in the piece. Returns the results as a table. For each
+    direction d, border[d] contains the list of cells that are adjacent
+    to a non-piece cell in the direction d.
+    """
     result = [[] for _ in range(NUM_DIRECTIONS)]
 
     if len(piece) != 0:
@@ -372,8 +379,8 @@ def border_table(piece):
     return result
 
 
-# Sorts piece and returns whether it contains duplicate coordinates.
 def contains_duplicate(piece):
+    """Sorts piece and returns whether it contains duplicate coordinates."""
     if not piece:
         return False
     piece.sort()
@@ -385,9 +392,10 @@ def contains_duplicate(piece):
     return False
 
 
-# Finds the ways piece0 and piece1 can be stuck together to form a new piece.
-# Returns the list of all possible joins.
 def find_joins(piece0, pieces, point_limit):
+    """Finds the ways piece0 and piece1 can be stuck together to form a new
+    piece. Returns the list of all possible joins.
+    """
     new_pieces = []
     bt0 = border_table(piece0)
     for piece1 in pieces.variations:
@@ -611,8 +619,8 @@ def map_piece(cells):
     return im
 
 
-# Combines a list of images into a single image and displays it.
 def show_images(images):
+    """Combines a list of images into a single image and displays it."""
     separator = 16  # Number of pixels between images
 
     # compute the size of the joined image
