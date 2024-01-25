@@ -1,7 +1,7 @@
-# This progam finds the solution to George Sicherman's 2024 New Year Puzzle
-# See https://sicherman.net/2024/2024.html
+""" This progam finds the solution to George Sicherman's 2024 New Year Puzzle
+See https://sicherman.net/2024/2024.html
+"""
 
-import cProfile
 import math
 from PIL import Image, ImageDraw, ImageFont
 import tqdm
@@ -189,7 +189,7 @@ def find_border(piece, border_cell):
         visited.add(e)
         for adj, direction in adjacent(e):
             if adj in in_piece:
-                if not adj in visited:
+                if adj not in visited:
                     examine.add(adj)
             else:
                 border_cell(e, direction)
@@ -324,18 +324,12 @@ def how_convex(piece):
     return result
 
 
-def make_cells(piece_id, pairs):
-    """Attaches the piece_id to each pair."""
-    result = [(p, piece_id) for p in pairs]
-    return result
-
-
 def make_variations(cells):
     """Returns a list of the twelve variations of the piece, considering
     rotations and reflections. There will be no duplicates in this list
     because none of the puzzle pieces are symmetrical.
     """
-    result = [cells.copy()]
+    result = [cells]
     for _ in range(5):
         result.append(rotate(result[-1]))
     result.append(flip(result[-1]))
@@ -354,19 +348,97 @@ class Piece:
             all the ways the piece can be rotated and reflected.
     """
 
-    def __init__(self, piece_id, coords):
-        cells = make_cells(piece_id, coords)
+    def __init__(self, piece_id, picture):
+        cells = make_cells(piece_id, picture)
         self.points = number_of_points(cells)
         self.variations = make_variations(cells)
+
+
+def make_cells(piece_id, picture):
+    """Reads an ASCII Art representation of a piece, and returns the
+    list of tuples that represents that piece.  We don't check that the
+    artwork is well-formed; we just scan it for key patterns to get the
+    proper x, y coordinates.
+    """
+    result = []
+    i = 1
+    y = 0
+    while i < len(picture):
+        text = picture[i]
+        # Look for down-pointing triangles.
+        x = 1
+        j = 0
+        while j + 4 < len(text):
+            if (
+                text[j : j + 4] == "\\  /"
+                and picture[i - 1][j + 1 : j + 3] == "__"
+            ):
+                result.append(((x, y), piece_id))
+            j += 2
+            x += 1
+        # Look for up-pointing triangles.
+        x = 1
+        j = 1
+        while j + 2 < len(text):
+            if text[j : j + 2] == "/\\" and picture[i + 1][j : j + 2] == "__":
+                result.append(((x, y), piece_id))
+            j += 2
+            x += 1
+        i += 2
+        y += 1
+    return normalize(result)
 
 
 # The four pieces of the puzzle.
 # We do not create any variations for P0 to avoid reporting solutions that
 # are rotations or reflections of one another.
-P0 = make_cells(0, [(1, 0), (2, 0), (2, 1), (3, 0), (3, 1), (4, 1)])
-P1 = Piece(1, [(1, 0), (1, 1), (1, 2), (2, 0), (2, 1), (3, 1)])
-P2 = Piece(2, [(1, 1), (2, 0), (2, 1), (3, 1), (4, 1)])
-P3 = Piece(3, [(1, 0), (2, 0), (2, 1), (3, 1), (4, 0), (4, 1)])
+P0 = make_cells(
+    0,
+    [
+        r" __  __    ",
+        r"\  /\  /   ",
+        r" \/__\/__  ",
+        r"  \  /\  / ",
+        r"   \/__\/  ",
+    ],
+)
+P1 = Piece(
+    1,
+    [
+        r" __      ",
+        r"\  /\    ",
+        r" \/__\   ",
+        r" /\  /\  ",
+        r"/__\/__\ ",
+        r"\  /     ",
+        r" \/      ",
+    ],
+)
+
+P2 = Piece(
+    2,
+    [
+        r"           ",
+        r"   /\      ",
+        r"  /__\ __  ",
+        r" /\  /\  / ",
+        r"/__\/__\/  ",
+    ],
+)
+
+P3 = Piece(
+    3,
+    [
+        r" __        ",
+        r"\  /\  /\  ",
+        r" \/__\/__\ ",
+        r"  \  /\  / ",
+        r"   \/__\/  ",
+    ],
+)
+
+# P2 = Piece(2, [(1, 1), (2, 0), (2, 1), (3, 1), (4, 1)])
+# P3 = Piece(3, [(1, 0), (2, 0), (2, 1), (3, 1), (4, 0), (4, 1)])
 
 # The colors for the pieces are chosen somewhat subjectively.
 COLORS = [f"hsl({hue}, 70%, 50%)" for hue in [0, 60, 150, 270]]
@@ -641,5 +713,4 @@ def show_images(images):
 
 
 if __name__ == "__main__":
-    # cProfile.run("Finder().find_solutions()")
     Finder().find_solutions()
