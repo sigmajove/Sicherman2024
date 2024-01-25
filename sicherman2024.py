@@ -64,12 +64,12 @@ COUNTERCLOCKWISE_DIRECTION = [
 
 
 def points_up(x, y):
-    """Returns whether the triangle at (x, y) is up-pointing."""
+    """Return whether the triangle at (x, y) is up-pointing."""
     return (x + y) % 2 == 0
 
 
 def adjacent_cell(xy, direction):
-    """Returns the (x, y) coordinates of the adjacent cell in the given
+    """Return the (x, y) coordinates of the adjacent cell in the given
     direction. Raises an exception we cannot go in that direction from xy.
     """
     x, y = xy
@@ -94,7 +94,7 @@ def adjacent_cell(xy, direction):
 
 
 def adjacent(xy):
-    """Returns information about the three cells that are adjacent to xy.
+    """Generate information about the three cells that are adjacent to xy.
     For each adjacent cell, returns [(x, y), direction]
     """
     x, y = xy
@@ -109,7 +109,7 @@ def adjacent(xy):
 
 
 def vertices(xy):
-    """Returns the three floating point coordinates of the vertices of the
+    """Return the three floating point coordinates of the vertices of the
     triangle. Intended for use with drawing packages.
     """
     x, y = xy
@@ -133,7 +133,7 @@ def vertices(xy):
 
 
 def normalize(cells):
-    """Returns a canonical, hashable, representation of a list of cells."""
+    """Return a canonical, hashable, representation of a list of cells."""
     min_x = min(c[0][0] for c in cells)
     min_y = min(c[0][1] for c in cells)
 
@@ -150,7 +150,7 @@ def normalize(cells):
 
 
 def rotate_cell(xy):
-    """Returns the cell rotated 60 degrees (counterclockwise) around the
+    """Return the cell rotated 60 degrees (counterclockwise) around the
     north vertex of the triangle with coordinates (0, 0).
     """
     x, y = xy
@@ -161,7 +161,7 @@ def rotate_cell(xy):
 
 
 def mirror_cell(xy):
-    """Returns the cell reflected about the y-axis."""
+    """Return the cell reflected about the y-axis."""
     x, y = xy
     return (-x, y)
 
@@ -325,7 +325,7 @@ def how_convex(piece):
 
 
 def make_variations(cells):
-    """Returns a list of the twelve variations of the piece, considering
+    """Return a list of the twelve variations of the piece, considering
     rotations and reflections. There will be no duplicates in this list
     because none of the puzzle pieces are symmetrical.
     """
@@ -445,8 +445,8 @@ COLORS = [f"hsl({hue}, 70%, 50%)" for hue in [0, 60, 150, 270]]
 
 
 def border_table(piece):
-    """Locates all the cells in this piece that are adjacent to one or
-    more cells not in the piece. Returns the results as a table. For each
+    """Locate all the cells in this piece that are adjacent to one or
+    more cells not in the piece. Return the results as a table. For each
     direction d, border[d] contains the list of cells that are adjacent
     to a non-piece cell in the direction d.
     """
@@ -484,8 +484,8 @@ def contains_duplicate(piece):
 
 
 def find_joins(piece0, pieces, point_limit):
-    """Finds the ways piece0 and pieces can be stuck together to form a new
-    piece. Returns the list of all possible joins.
+    """Find the ways piece0 and pieces can be stuck together to form a new
+    piece. Return the list of all possible joins.
     """
     new_pieces = []
     bt0 = border_table(piece0)
@@ -655,7 +655,7 @@ def draw_piece(cells):
 
 
 # For debugging.
-# Returns an image of the piece annotated with the coordinates of each cell.
+# Return an image of the piece annotated with the coordinates of each cell.
 
 font = ImageFont.truetype("arial.ttf", size=15)
 
