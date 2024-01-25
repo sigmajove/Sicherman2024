@@ -3,8 +3,8 @@
 
 import cProfile
 import math
-import time
 from PIL import Image, ImageDraw, ImageFont
+import tqdm
 
 # I need a coordinate system for moving triangles around the plane.
 # I choose a triangular tiling with the Archimedian coloring 121212, see
@@ -174,6 +174,25 @@ def rotate(piece):
 def flip(piece):
     """Creates a mirror image of a piece by flipping it on the y axis"""
     return normalize([[mirror_cell(p[0]), p[1]] for p in piece])
+
+
+def find_border(piece, border_cell):
+    """doc"""
+    if len(piece) == 0:
+        return
+
+    visited = set()
+    in_piece = set(p[0] for p in piece)
+    examine = {piece[0][0]}
+    while examine:
+        e = examine.pop()
+        visited.add(e)
+        for adj, direction in adjacent(e):
+            if adj in in_piece:
+                if not adj in visited:
+                    examine.add(adj)
+            else:
+                border_cell(e, direction)
 
 
 def number_of_points(piece):
@@ -393,7 +412,7 @@ def contains_duplicate(piece):
 
 
 def find_joins(piece0, pieces, point_limit):
-    """Finds the ways piece0 and piece1 can be stuck together to form a new
+    """Finds the ways piece0 and pieces can be stuck together to form a new
     piece. Returns the list of all possible joins.
     """
     new_pieces = []
@@ -429,20 +448,6 @@ def find_joins(piece0, pieces, point_limit):
                         )
                     ):
                         new_pieces.append(joined)
-
-    #   new_pieces = list(new_pieces)
-    #   img = draw_piece(piece0)
-    #   print("piece has {} dents for {} points".format(how_convex(piece0),
-    #         point_limit))
-    #   img.show()
-    #   img.close()
-    #   answer = list(map(draw_piece, new_pieces))
-    #   combined = show_images(answer)
-    #   combined.show()
-    #   combined.close()
-    #   for a in answer:
-    #       a.close()
-    #   input("next")
 
     if not new_pieces:
         return []
@@ -485,6 +490,7 @@ def has_triangular_hole(piece):
 
 class Finder:
     """Class wrapper to allow assemble_pieces to have global variables."""
+
     def __init__(self):
         # The process for generating candidates generates duplicates.
         # Since testing the candidates is expensive, we use this table
@@ -495,11 +501,11 @@ class Finder:
         self._num_candidates = 0
 
         self._alert_every = 100_000
-        self._next_alert = self._alert_every
         self._solutions = []
 
         self._level = 0
         self._stop = False
+        self._progress = tqdm.tqdm(unit=" candidates")
 
     def evaluate_candidates(self, candidates):
         for candidate in candidates:
@@ -509,14 +515,12 @@ class Finder:
 
                 # If the candidate is convex, add it to the list of solutions.
                 # We don't need an explicit check for holes, since any pieces
-                # with hold will fail to how_convex check.
+                # with a hole will fail to how_convex check.
                 if how_convex(candidate) == 0:
                     self._solutions.append(candidate)
             self._num_candidates += 1
-            if self._num_candidates >= self._next_alert:
-                print(f"Evaluated {self._num_candidates}")
-                self._next_alert = self._num_candidates + self._alert_every
-                # self._stop = True
+
+        self._progress.update(len(candidates))
 
     # Called with a list of pieces, where each piece is list [x, y, p]
     # where x and y are the position, and i the id of the original piece.
@@ -536,12 +540,11 @@ class Finder:
         self._level -= 1
 
     def find_solutions(self):
-        start_time = time.time()
-
         self.assemble_pieces(P0, [P1, P2, P3])
+        self._progress.close()
 
-        print("Checked", self._num_candidates, "candidates")
-        print("Found", len(self._solutions), "solutions")
+        print(f"Tested {self._num_candidates} candidates")
+        print(f"Found {len(self._solutions)} solutions")
 
         # Write all the solutions into a file.
         if self._solutions:
@@ -551,9 +554,6 @@ class Finder:
             combined.close()
             for a in answer:
                 a.close()
-
-        elapsed_minutes = int(round((time.time() - start_time) / 60.0))
-        print(f"Solution took {elapsed_minutes} minutes")
 
 
 # Draws a list of cells, returning a PIL image
