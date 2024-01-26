@@ -176,45 +176,110 @@ def flip(piece):
     return normalize([[mirror_cell(p[0]), p[1]] for p in piece])
 
 
-def find_border(piece, border_cell):
-    """doc"""
+def find_border(piece, report_border_cell):
+    """Use depth-first search to find the boundary of the piece.
+    For each instance of two adjacent cells (inside, outside) where inside
+    is in the piece but outside is not, call report_border_cell(inside, d),
+    where is the direction from inside to outside. report_border_cell
+    is never called more than once with the same arguments.
+    """
     if len(piece) == 0:
-        return
+        return set()
 
     visited = set()
     in_piece = set(p[0] for p in piece)
     examine = {piece[0][0]}
     while examine:
-        e = examine.pop()
-        visited.add(e)
-        for adj, direction in adjacent(e):
+        cell = examine.pop()
+        visited.add(cell)
+        for adj, direction in adjacent(cell):
             if adj in in_piece:
                 if adj not in visited:
                     examine.add(adj)
             else:
-                border_cell(e, direction)
+                report_border_cell(cell, direction)
+    return in_piece
 
 
-def number_of_points(piece):
-    # Check for vacuous case.
-    if len(piece) == 0:
-        return 0
+def vertex_id(x, y, direction):
+    """We can identify a vertex with the coordinates of a cell,
+    and a direction that points from the center of the cell to the vertix.
+    But using this convention, a vertex can have three different names.
+    Instead use the convention it is the NORTH vertix of a cell. That
+    name is unique.
+    """
+    if direction == NORTH:
+        return (x, y)
+    if direction == NORTHEAST:
+        return (x + 1, y)
+    if direction == NORTHWEST:
+        return (x - 1, y)
+    if direction == SOUTHEAST:
+        return (x + 1, y + 1)
+    if direction == SOUTHWEST:
+        return (x - 1, y + 1)
+    if direction == SOUTH:
+        return (x, y + 1)
+    raise ValueError(f"{direction} is not a direction")
 
+
+def how_many_holes(piece):
+    """Return the number of internal holes in the piece. The algorithm only
+    cares about zero vs nonzero. We return the number to increase testing
+    confidence. But be forwarned that the code consideres two holes that
+    touch at a diagonal to be a single hole.
+    """
+    border_map = {}
+    border_touches = False
+
+    def report_border_cell(b, direction):
+        nonlocal border_touches
+        # Store the border
+        x, y = b
+        key = vertex_id(x, y, COUNTERCLOCKWISE_DIRECTION[direction])
+        if key in border_map:
+            border_touches = True
+        else:
+            border_map[key] = vertex_id(x, y, CLOCKWISE_DIRECTION[direction])
+
+    find_border(piece, report_border_cell)
+
+    if border_touches:
+        # Wierd corner case.
+        # There is a hole, but it touches the border.
+        # In this case, the algorithm cannot detect the number of holes.
+        # Lie. If there is a hole, we don't actually care how many there are.
+        return 1
+
+    # border_map now contains all the border edges, for both the
+    # piece and any holes. We count the loops and subtract one.
+    # Unless there are no loops, which can only happen if the
+    # piece is empty.
+
+    num_loops = -1
+    while border_map:
+        start, next_one = border_map.popitem()
+        while next_one != start:
+            next_one = border_map.pop(next_one)
+        num_loops += 1
+
+    return max(0, num_loops)
+
+
+def how_many_points(piece):
+    """Return the number of acute angles on the piece.  Return one point
+    for every 60 degree angle and two points for each 120 degree angle.
+    This function is only called for three of the four puzzle pieces,
+    so we don't worry about holes.
+    """
+    # For each cell on the border, counts the edges (at least one)
+    # that are adjacent to an outside cell.
     border = {}
 
-    # Use depth-first search to populate border.
-    visited = set()
-    in_piece = set(p[0] for p in piece)
-    examine = {piece[0][0]}
-    while examine:
-        e = examine.pop()
-        visited.add(e)
-        for adj, _ in adjacent(e):
-            if adj in in_piece:
-                if not adj in visited:
-                    examine.add(adj)
-            else:
-                border[e] = border.get(e, 0) + 1
+    def report_border_cell(b, _):
+        border[b] = border.get(b, 0) + 1
+
+    in_piece = find_border(piece, report_border_cell)
 
     # Now count the number of points.
     points = sum(1 if v == 2 else 3 if v == 3 else 0 for v in border.values())
@@ -249,12 +314,12 @@ def how_convex(piece):
 
     # Check for vacuous case.
     if len(piece) == 0:
-        return True
+        return 0
 
     # The map keys are cells in the piece that are adjacent to one or more
     # cells not in the piece. The value of the map is the direction from
     # the border cell to an adjacent cell in the piece.
-    surrounding = set()
+    surrounding = {}
 
     # Use depth-first search to populate surrounding.
     visited = set()
@@ -272,7 +337,11 @@ def how_convex(piece):
                     # If a border cell is adjacent to two cells in the piece,
                     # there must be a 300 degree vertex.
                     result += 1
-                surrounding.add(adj)
+                new_value = surrounding.get(adj, 0) + 1
+                surrounding[adj] = new_value
+                if new_value == 3:
+                    # A triangular shaped hole
+                    result += 1
 
     # Next we detect 240 degree vertices by examining all pairs of
     # adjacent border cells.  We are looking for this pattern:
@@ -350,7 +419,7 @@ class Piece:
 
     def __init__(self, piece_id, picture):
         cells = make_cells(piece_id, picture)
-        self.points = number_of_points(cells)
+        self.points = how_many_points(cells)
         self.variations = make_variations(cells)
 
 
@@ -513,7 +582,7 @@ def find_joins(piece0, pieces, point_limit):
 
                     if (
                         not contains_duplicate(joined)
-                        and not has_triangular_hole(joined)
+                        and how_many_holes(joined) == 0
                         and (
                             point_limit is None
                             or how_convex(joined) <= point_limit
