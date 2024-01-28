@@ -165,6 +165,10 @@ def normalize(cells):
     return tuple(renumbered)
 
 
+def fingerprint(cells):
+    return hash(normalize(cells)) % 100000000
+
+
 def rotate_cell(xy):
     """Return the cell rotated 60 degrees (counterclockwise) around the
     north vertex of the triangle with coordinates (0, 0).
@@ -219,12 +223,11 @@ class PieceScanner:
         """Find the boundary of the piece.  For each instance of two adjacent
         cells (inside, outside) where inside is in the piece but outside is not,
         store the border between them in self._border_map.
+        Set self._early_exit if we detect a hole.
         """
-        self._border_map = {}
-        self._early_exit = False
 
-        visited = set()
-        in_piece = set(p[0] for p in piece)
+        in_piece = {cell for cell, _ in piece}
+        self._border_map = {}
         for cell, _ in piece:
             for adj, direction in adjacent(cell):
                 if adj not in in_piece:
@@ -240,6 +243,7 @@ class PieceScanner:
                         vertex_id(x, y, CLOCKWISE_DIRECTION[direction]),
                         direction,
                     )
+        self._early_exit = False
 
     def count_dents_or_points(self, dents_not_points):
         """Return the number of dents or points in the piece.
@@ -350,201 +354,6 @@ def get_border(piece):
     return total
 
 
-def find_border(piece, report_border_cell):
-    """Use depth-first search to find the boundary of the piece.
-    For each instance of two adjacent cells (inside, outside) where inside
-    is in the piece but outside is not, call report_border_cell(inside, d),
-    where is the direction from inside to outside. report_border_cell
-    is never called more than once with the same arguments.
-    """
-    if len(piece) == 0:
-        return set()
-
-    visited = set()
-    in_piece = set(p[0] for p in piece)
-    examine = {piece[0][0]}
-    while examine:
-        cell = examine.pop()
-        visited.add(cell)
-        for adj, direction in adjacent(cell):
-            if adj in in_piece:
-                if adj not in visited:
-                    examine.add(adj)
-            else:
-                report_border_cell(cell, direction)
-    return in_piece
-
-
-def how_many_holes(piece):
-    """Return the number of internal holes in the piece. The algorithm only
-    cares about zero vs nonzero. We return the number to increase testing
-    confidence. But be forwarned that the code consideres two holes that
-    touch at a diagonal to be a single hole.
-    """
-    border_map = {}
-    border_touches = False
-
-    def report_border_cell(b, direction):
-        nonlocal border_touches
-        # Store the border
-        x, y = b
-        key = vertex_id(x, y, COUNTERCLOCKWISE_DIRECTION[direction])
-        if key in border_map:
-            border_touches = True
-        else:
-            border_map[key] = vertex_id(x, y, CLOCKWISE_DIRECTION[direction])
-
-    find_border(piece, report_border_cell)
-
-    if border_touches:
-        # Wierd corner case.
-        # There is a hole, but it touches the border.
-        # In this case, the algorithm cannot detect the number of holes.
-        # Lie. If there is a hole, we don't actually care how many there are.
-        return 1
-
-    # border_map now contains all the border edges, for both the
-    # piece and any holes. We count the loops and subtract one.
-    # Unless there are no loops, which can only happen if the
-    # piece is empty.
-
-    num_loops = -1
-    while border_map:
-        start, next_one = border_map.popitem()
-        while next_one != start:
-            next_one = border_map.pop(next_one)
-        num_loops += 1
-
-    return max(0, num_loops)
-
-
-def how_many_points(piece):
-    """Return the number of acute angles on the piece.  Return one point
-    for every 60 degree angle and two points for each 120 degree angle.
-    This function is only called for three of the four puzzle pieces,
-    so we don't worry about holes.
-    """
-    # For each cell on the border, counts the edges (at least one)
-    # that are adjacent to an outside cell.
-    border = {}
-
-    def report_border_cell(b, _):
-        border[b] = border.get(b, 0) + 1
-
-    # in_piece = find_border(piece, report_border_cell)
-
-    # Now count the number of points.
-    points = sum(1 if v == 2 else 3 if v == 3 else 0 for v in border.values())
-    for b in border:
-        for a, a_dir in adjacent(b):
-            if a in border:
-                # b and a are two adjacent border cells.
-                # Usually this means the border turns 120 degrees.
-                # Unfortunately, there is a weird corner case we
-                # have to rule out.
-                b_dir = OPPOSITE_DIRECTION[a_dir]
-                b_turn_1 = CLOCKWISE_DIRECTION[b_dir]
-                b_turn_2 = COUNTERCLOCKWISE_DIRECTION[b_dir]
-                a_turn_1 = COUNTERCLOCKWISE_DIRECTION[a_dir]
-                a_turn_2 = CLOCKWISE_DIRECTION[a_dir]
-                if (
-                    adjacent_cell(a, a_turn_1) not in in_piece
-                    and adjacent_cell(b, b_turn_1) not in in_piece
-                ) or (
-                    adjacent_cell(a, a_turn_2) not in in_piece
-                    and adjacent_cell(b, b_turn_2) not in in_piece
-                ):
-                    points += 1
-    return points
-
-
-def how_convex(piece):
-    result = 0
-    # We reject a polygon if one of the angles is 300 degrees or 240 degrees.
-    # We use depth-first search to find all the border cells that surround the
-    # piece. We detect the bad angles by examining those border cells
-
-    # Check for vacuous case.
-    if len(piece) == 0:
-        return 0
-
-    # The map keys are cells in the piece that are adjacent to one or more
-    # cells not in the piece. The value of the map is the direction from
-    # the border cell to an adjacent cell in the piece.
-    surrounding = {}
-
-    # Use depth-first search to populate surrounding.
-    visited = set()
-    in_piece = set(p[0] for p in piece)
-    examine = {piece[0][0]}
-    while examine:
-        e = examine.pop()
-        visited.add(e)
-        for adj, _ in adjacent(e):
-            if adj in in_piece:
-                if not adj in visited:
-                    examine.add(adj)
-            else:
-                if adj in surrounding:
-                    # If a border cell is adjacent to two cells in the piece,
-                    # there must be a 300 degree vertex.
-                    result += 1
-                new_value = surrounding.get(adj, 0) + 1
-                surrounding[adj] = new_value
-                if new_value == 3:
-                    # A triangular shaped hole
-                    result += 1
-
-    # Next we detect 240 degree vertices by examining all pairs of
-    # adjacent border cells.  We are looking for this pattern:
-    #
-    #      #####/\
-    #      ####/  \
-    #      ###/    \
-    #      ##/      \
-    #      #/________\
-    #      #\        /
-    #      ##\      /
-    #      ###\    /
-    #      ####\  /
-    #      #####\/
-    #
-    # which contains a 240 degree vertex.
-    #
-    # We ignore this pattern:
-    #
-    #      #####/\
-    #      ####/  \
-    #      ###/    \
-    #      ##/      \
-    #      #/________\
-    #       \        /#
-    #        \      /##
-    #         \    /###
-    #          \  /####
-    #           \/#####
-    #
-
-    for b in surrounding:
-        for a, a_dir in adjacent(b):
-            if a in surrounding:
-                b_dir = OPPOSITE_DIRECTION[a_dir]
-                b_turn_1 = CLOCKWISE_DIRECTION[b_dir]
-                b_turn_2 = COUNTERCLOCKWISE_DIRECTION[b_dir]
-                a_turn_1 = COUNTERCLOCKWISE_DIRECTION[a_dir]
-                a_turn_2 = CLOCKWISE_DIRECTION[a_dir]
-                if (
-                    adjacent_cell(a, a_turn_1) in in_piece
-                    and adjacent_cell(b, b_turn_1) in in_piece
-                ) or (
-                    adjacent_cell(a, a_turn_2) in in_piece
-                    and adjacent_cell(b, b_turn_2) in in_piece
-                ):
-                    result += 1
-
-    return result
-
-
 def make_variations(cells):
     """Return a list of the twelve variations of the piece, considering
     rotations and reflections. There will be no duplicates in this list
@@ -571,7 +380,11 @@ class Piece:
 
     def __init__(self, piece_id, picture):
         cells = make_cells(piece_id, picture)
-        self.points = how_many_points(cells)
+        points = PieceScanner(cells).count_dents_or_points(
+            dents_not_points=False
+        )
+        assert points is not None
+        self.points = points
         self.variations = make_variations(cells)
 
 
@@ -660,9 +473,6 @@ P3 = Piece(
     ],
 )
 
-# P2 = Piece(2, [(1, 1), (2, 0), (2, 1), (3, 1), (4, 1)])
-# P3 = Piece(3, [(1, 0), (2, 0), (2, 1), (3, 1), (4, 0), (4, 1)])
-
 # The colors for the pieces are chosen somewhat subjectively.
 COLORS = [f"hsl({hue}, 70%, 50%)" for hue in [0, 60, 150, 270]]
 
@@ -675,20 +485,13 @@ def border_table(piece):
     """
     result = [[] for _ in range(NUM_DIRECTIONS)]
 
-    if len(piece) != 0:
-        # Use depth-first search to populate result.
-        visited = set()
-        in_piece = set(p[0] for p in piece)
-        examine = {piece[0][0]}
-        while examine:
-            e = examine.pop()
-            visited.add(e)
-            for xy, direction in adjacent(e):
-                if xy in in_piece:
-                    if not xy in visited:
-                        examine.add(xy)
-                else:
-                    result[direction].append(e)
+    # The set of xy coordinates in this piece
+    in_piece = {e for e, _ in piece}
+
+    for e, _ in piece:
+        for xy, direction in adjacent(e):
+            if xy not in in_piece:
+                result[direction].append(e)
 
     return result
 
@@ -706,83 +509,6 @@ def contains_duplicate(piece):
     return False
 
 
-def find_joins(piece0, pieces, point_limit):
-    """Find the ways piece0 and pieces can be stuck together to form a new
-    piece. Return the list of all possible joins.
-    """
-    new_pieces = []
-    bt0 = border_table(piece0)
-    for piece1 in pieces.variations:
-        bt1 = border_table(piece1)
-
-        for direction in range(NUM_DIRECTIONS):
-            for cell0 in bt0[direction]:
-                for cell1 in bt1[OPPOSITE_DIRECTION[direction]]:
-                    # The two pieces can by stuck together at cell0 and cell1.
-
-                    # We will renumber piece1 so that cell1 has the
-                    # coordinates (x, y)
-
-                    x, y = adjacent_cell(cell0, direction)
-                    dx = x - cell1[0]
-                    dy = y - cell1[1]
-
-                    joined = [*piece0]
-
-                    # Append all the cells of piece1, adjusting the coordinates
-                    # to be consistent with piece0.
-                    for p in piece1:
-                        joined.append(((p[0][0] + dx, p[0][1] + dy), p[1]))
-
-                    if (
-                        not contains_duplicate(joined)
-                        and how_many_holes(joined) == 0
-                        and (
-                            point_limit is None
-                            or how_convex(joined) <= point_limit
-                        )
-                    ):
-                        new_pieces.append(joined)
-
-    if not new_pieces:
-        return []
-
-    new_pieces.sort()
-    prev = new_pieces[0]
-    result = [prev]
-    for p in new_pieces[1:]:
-        if prev != p:
-            result.append(p)
-        prev = p
-    return result
-
-
-def has_triangular_hole(piece):
-    # Check for vacuous case.
-    if len(piece) == 0:
-        return False
-
-    surrounding = {}
-
-    # Use depth-first search to populate surrounding.
-    visited = set()
-    in_piece = set(p[0] for p in piece)
-    examine = {piece[0][0]}
-    while examine:
-        e = examine.pop()
-        visited.add(e)
-        for adj, _ in adjacent(e):
-            if adj in in_piece:
-                if not adj in visited:
-                    examine.add(adj)
-            else:
-                new_val = surrounding.get(adj, 0) + 1
-                if new_val >= 3:
-                    return True
-                surrounding[adj] = new_val
-    return False
-
-
 class Finder:
     """Class wrapper to allow assemble_pieces to have global variables."""
 
@@ -794,8 +520,9 @@ class Finder:
 
         # The number of candidates we tested with how_convex
         self._num_candidates = 0
+        self._point_prunes = 0
+        self._hole_prunes = 0
 
-        self._alert_every = 100_000
         self._solutions = []
 
         self._level = 0
@@ -807,27 +534,91 @@ class Finder:
             hashable = normalize(candidate)
             if hashable not in self._tested:
                 self._tested.add(hashable)
-
-                # If the candidate is convex, add it to the list of solutions.
-                # We don't need an explicit check for holes, since any pieces
-                # with a hole will fail to how_convex check.
-                if how_convex(candidate) == 0:
-                    self._solutions.append(candidate)
+                trace = hashable[0][1] == 0 and fingerprint(hashable) == 75277
+                if PieceScanner(hashable).is_convex():
+                    self._solutions.append(hashable)
             self._num_candidates += 1
 
         self._progress.update(len(candidates))
+
+    def find_joins(self, piece0, pieces, point_limit):
+        """Find the ways piece0 and pieces can be stuck together to form a new
+        piece. Return the list of all possible joins.
+        """
+        new_pieces = []
+        bt0 = border_table(piece0)
+        for piece1 in pieces.variations:
+            bt1 = border_table(piece1)
+
+            for direction in range(NUM_DIRECTIONS):
+                for cell0 in bt0[direction]:
+                    for cell1 in bt1[OPPOSITE_DIRECTION[direction]]:
+                        # The two pieces can by stuck together at cell0 and
+                        # cell1.  We will renumber piece1 so that cell1 has
+                        # the coordinates (x, y)
+
+                        x, y = adjacent_cell(cell0, direction)
+                        dx = x - cell1[0]
+                        dy = y - cell1[1]
+
+                        joined = [*piece0]
+
+                        # Append all the cells of piece1, adjusting the
+                        # coordinates to be consistent with piece0.
+                        for p in piece1:
+                            joined.append(((p[0][0] + dx, p[0][1] + dy), p[1]))
+
+                        if contains_duplicate(joined):
+                            append = False
+                        elif point_limit is None:
+                            # Don't bother with any more checking.
+                            # That will be done in evalulate_candidates.
+                            append = True
+                        else:
+                            dent_count = PieceScanner(
+                                joined
+                            ).count_dents_or_points(dents_not_points=True)
+                            if dent_count is None:
+                                self._hole_prunes += 1
+                                append = False  # There is a hole
+                            else:
+                                # Only continue of there are enough points
+                                # left to fill all the existing dents.
+                                append = dent_count <= point_limit
+                                if not append:
+                                    self._point_prunes += 1
+                        if append:
+                            new_pieces.append(joined)
+
+        if not new_pieces:
+            return []
+
+        new_pieces.sort()
+        prev = new_pieces[0]
+        result = [prev]
+        for p in new_pieces[1:]:
+            if prev != p:
+                result.append(p)
+            prev = p
+
+        return result
 
     # Called with a list of pieces, where each piece is list [x, y, p]
     # where x and y are the position, and i the id of the original piece.
     def assemble_pieces(self, big_piece, pieces):
         self._level += 1
         if len(pieces) == 1:
-            self.evaluate_candidates(find_joins(big_piece, pieces[0], None))
+            self.evaluate_candidates(
+                self.find_joins(big_piece, pieces[0], point_limit=None)
+            )
         else:
             for i, piece_i in enumerate(pieces):
                 omit_i = pieces[:i] + pieces[i + 1 :]
-                point_limit = sum(p.points for p in omit_i)
-                for join in find_joins(big_piece, piece_i, point_limit):
+                for join in self.find_joins(
+                    big_piece,
+                    piece_i,
+                    point_limit=sum(p.points for p in omit_i),
+                ):
                     self.assemble_pieces(join, omit_i)
                     if self._stop:
                         break
@@ -838,11 +629,14 @@ class Finder:
         self.assemble_pieces(P0, [P1, P2, P3])
         self._progress.close()
 
+        print(f"Pruned {self._point_prunes} for points")
+        print(f"Pruned {self._hole_prunes} for holes")
         print(f"Tested {self._num_candidates} candidates")
         print(f"Found {len(self._solutions)} solutions")
 
         # Write all the solutions into a file.
         if self._solutions:
+            self._solutions = self._solutions[:5]
             answer = list(map(draw_piece, self._solutions))
             combined = show_images(answer)
             combined.save("answer.png", "PNG")
@@ -897,7 +691,7 @@ def map_piece(cells):
             max_y = max(max_y, v[1])
 
     width = int(math.ceil(1 + max_x - min_x))
-    height = int(math.ceil(1 + max_y - min_y))
+    height = int(math.ceil(1 + max_y - min_y) + 22)
     im = Image.new("RGB", (width, height), color="white")
     d = ImageDraw.Draw(im)
 
@@ -912,11 +706,15 @@ def map_piece(cells):
         text = "{} {}".format(*c[0])
         d.text((av_x - 13, av_y), text, font=font, fill="white")
 
+    d.text(
+        (3, height - 21), f"{fingerprint(cells):08}", font=font, fill="black"
+    )
+
     return im
 
 
 def show_images(images):
-    """Combines a list of images into a single image and displays it."""
+    """Combines a list of images into a single image and returns it."""
     separator = 16  # Number of pixels between images
 
     # compute the size of the joined image

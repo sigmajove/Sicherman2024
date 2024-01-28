@@ -256,7 +256,7 @@ def how_concave(piece, answer):
         main.PieceScanner(piece).count_dents_or_points(dents_not_points=True)
         == answer
     )
-    assert main.PieceScanner(piece).is_convex() == (answer == 0)
+    assert main.PieceScanner(piece).is_concave() == (answer == 0)
 
 
 def test_concave():
@@ -290,7 +290,7 @@ def check_holes(piece, answer):
             main.PieceScanner(piece).count_dents_or_points(bool) is None
         )
     if answer:
-        assert not main.PieceScanner(piece).is_convex()
+        assert not main.PieceScanner(piece).is_concave()
 
 
 def test_holes():
