@@ -55,6 +55,22 @@ COUNTERCLOCKWISE_DIRECTION = [
 ]
 
 
+TURNING_POINTS = [-2, -1, None, 1, 2, 0, -2, -1, None, 1, 2]
+
+
+def turn_angle(d0, d1):
+    """Describe the turn we make when we change direction from d0 to d1.
+    Here are the different results:
+      0:    no turn (straight)
+      1:    60 degree left turn
+      2:    120 degree left turn
+      -1:   60 degree right turn
+      -2:   120 degree right turn
+      None: U-turn
+    """
+    return TURNING_POINTS[d1 - d0 + 5]
+
+
 # Puzzle pieces are represented by lists, or tuples where appropriate,
 # of cell tuples of the form ((x, y), p). The values x and y are integer
 # coordinates, as described above. The value p is in range(0, 4), and
@@ -82,7 +98,7 @@ def adjacent_cell(xy, direction):
         if direction == SOUTH:
             return (x, y + 1)
     else:
-        # Downward pointing triangle
+        # Downward pointing triangle/
         if direction == SOUTHEAST:
             return (x + 1, y)
         if direction == SOUTHWEST:
@@ -176,6 +192,173 @@ def flip(piece):
     return normalize([[mirror_cell(p[0]), p[1]] for p in piece])
 
 
+def vertex_id(x, y, direction):
+    """We can identify a vertex with the coordinates of a cell,
+    and a direction that points from the center of the cell to the vertix.
+    But using this convention, a vertex can have three different names.
+    Instead use the convention it is the NORTH vertix of a cell. That
+    name is unique.
+    """
+    if direction == NORTH:
+        return (x, y)
+    if direction == NORTHEAST:
+        return (x + 1, y)
+    if direction == NORTHWEST:
+        return (x - 1, y)
+    if direction == SOUTHEAST:
+        return (x + 1, y + 1)
+    if direction == SOUTHWEST:
+        return (x - 1, y + 1)
+    if direction == SOUTH:
+        return (x, y + 1)
+    raise ValueError(f"{direction} is not a direction")
+
+
+class PieceScanner:
+    def __init__(self, piece):
+        """Use depth-first search to find the boundary of the piece.
+        For each instance of two adjacent cells (inside, outside) where inside
+        is in the piece but outside is not, call report_border_cell(inside, d),
+        where is the direction from inside to outside. report_border_cell
+        is never called more than once with the same arguments.
+        """
+        self._border_map = {}
+        self._early_exit = False
+
+        if len(piece) == 0:
+            return
+
+        visited = set()
+        in_piece = set(p[0] for p in piece)
+        examine = {piece[0][0]}
+        while examine:
+            cell = examine.pop()
+            visited.add(cell)
+            for adj, direction in adjacent(cell):
+                if adj in in_piece:
+                    if adj not in visited:
+                        examine.add(adj)
+                else:
+                    # Store the border
+                    x, y = cell
+                    key = vertex_id(x, y, COUNTERCLOCKWISE_DIRECTION[direction])
+                    if key in self._border_map:
+                        self._early_exit = True
+                        return
+                    self._border_map[key] = (
+                        vertex_id(x, y, CLOCKWISE_DIRECTION[direction]),
+                        direction,
+                    )
+
+    def count_dents_or_points(self, dents_not_points):
+        """Return the number of dents or points in the piece.
+        dents_not_points is a boolean that selects which feature we count.
+        Return None if the piece has a hole.
+        """
+        if self._early_exit:
+            return None  # There is a loop.
+        if not self._border_map:
+            return 0
+
+        # Nondestructively select an arbitrary starting point.
+        # We can't count start yet, since we don't have its predecessor.
+        start = next(iter(self._border_map.values()))
+        total = 0
+        vertex = start
+        while True:
+            # Deleted and count every vertex in the loop.
+            next_vertex = self._border_map.pop(vertex[0])
+            turns = turn_angle(vertex[1], next_vertex[1])
+            total += max(0, turns if dents_not_points else -turns)
+            vertex = next_vertex
+
+            # When we have counted every vertex we are done.
+            if vertex == start:
+                break
+        # if there are any verticies left in _border_map, we have a loop.
+        return None if self._border_map else total
+
+    def is_convex(self):
+        """Return whether the piece has no holes or dents.
+        Equivalent to count_dents_or_points(self, dents_not_points=True) == 0,
+        but it is faster because it stops when it encounters the first dent.
+        """
+        if self._early_exit:
+            return False
+
+        if not self._border_map:
+            return True
+
+        start = next(iter(self._border_map.values()))
+        vertex = start
+        while True:
+            next_vertex = self._border_map.pop(vertex[0])
+            if turn_angle(vertex[1], next_vertex[1]) > 0:
+                return False
+            vertex = next_vertex
+            if vertex == start:
+                break
+        return not self._border_map
+
+    def number_of_points(self):
+        """Return the number of points available to fill concave dents,
+        or None if the piece has a hole.
+        """
+        if self._early_exit:
+            return None  # There is a loop.
+        start, next_one = self._border_map.popitem()
+        total = max(0, -turn_angle(next_one[1], start[1]))
+        while next_one[0] != start:
+            next_next = self._border_map.pop(next_one[0])
+            total += max(0, -turn_angle(next_one[1], next_next[1]))
+            next_one = next_next
+        return (
+            None  # There is a loop.
+            if self._border_map
+            else total + max(0, -turn_angle(next_one[1], start[1]))
+        )
+
+
+def get_border(piece):
+    border_map = {}
+    in_piece = set(p[0] for p in piece)
+    examine = {piece[0][0]}
+    visited = set()
+    while examine:
+        cell = examine.pop()
+        visited.add(cell)
+        for adj, direction in adjacent(cell):
+            if adj in in_piece:
+                if adj not in visited:
+                    examine.add(adj)
+            else:
+                x, y = cell
+                key = vertex_id(x, y, COUNTERCLOCKWISE_DIRECTION[direction])
+                if key in border_map:
+                    return None
+                value = (
+                    vertex_id(x, y, CLOCKWISE_DIRECTION[direction]),
+                    direction,
+                )
+                border_map[key] = value
+
+    start, next_one = border_map.popitem()
+    total = 0
+    t = turn_angle(next_one[1], start[1])
+    if t > 0:
+        total += t
+    while next_one[0] != start:
+        n2 = border_map.pop(next_one[0])
+        t = turn_angle(next_one[1], n2[1])
+        if t > 0:
+            total += t
+        next_one = n2
+    t = turn_angle(next_one[1], start[1])
+    if t > 0:
+        total += t
+    return total
+
+
 def find_border(piece, report_border_cell):
     """Use depth-first search to find the boundary of the piece.
     For each instance of two adjacent cells (inside, outside) where inside
@@ -199,28 +382,6 @@ def find_border(piece, report_border_cell):
             else:
                 report_border_cell(cell, direction)
     return in_piece
-
-
-def vertex_id(x, y, direction):
-    """We can identify a vertex with the coordinates of a cell,
-    and a direction that points from the center of the cell to the vertix.
-    But using this convention, a vertex can have three different names.
-    Instead use the convention it is the NORTH vertix of a cell. That
-    name is unique.
-    """
-    if direction == NORTH:
-        return (x, y)
-    if direction == NORTHEAST:
-        return (x + 1, y)
-    if direction == NORTHWEST:
-        return (x - 1, y)
-    if direction == SOUTHEAST:
-        return (x + 1, y + 1)
-    if direction == SOUTHWEST:
-        return (x - 1, y + 1)
-    if direction == SOUTH:
-        return (x, y + 1)
-    raise ValueError(f"{direction} is not a direction")
 
 
 def how_many_holes(piece):
@@ -279,7 +440,7 @@ def how_many_points(piece):
     def report_border_cell(b, _):
         border[b] = border.get(b, 0) + 1
 
-    in_piece = find_border(piece, report_border_cell)
+    # in_piece = find_border(piece, report_border_cell)
 
     # Now count the number of points.
     points = sum(1 if v == 2 else 3 if v == 3 else 0 for v in border.values())
@@ -442,6 +603,7 @@ def make_cells(piece_id, picture):
                 text[j : j + 4] == "\\  /"
                 and picture[i - 1][j + 1 : j + 3] == "__"
             ):
+                assert not points_up(x, y)
                 result.append(((x, y), piece_id))
             j += 2
             x += 1
@@ -450,6 +612,7 @@ def make_cells(piece_id, picture):
         j = 1
         while j + 2 < len(text):
             if text[j : j + 2] == "/\\" and picture[i + 1][j : j + 2] == "__":
+                assert points_up(x, y)
                 result.append(((x, y), piece_id))
             j += 2
             x += 1
