@@ -525,7 +525,6 @@ class Finder:
 
         self._solutions = []
 
-        self._level = 0
         self._stop = False
         self._progress = tqdm.tqdm(unit=" candidates")
 
@@ -582,8 +581,9 @@ class Finder:
                                 self._hole_prunes += 1
                                 append = False  # There is a hole
                             else:
-                                # Only continue of there are enough points
-                                # left to fill all the existing dents.
+                                # Only continue if there are enough points
+                                # left in the remaining pieces to fill all
+                                # the existing dents.
                                 append = dent_count <= point_limit
                                 if not append:
                                     self._point_prunes += 1
@@ -591,8 +591,9 @@ class Finder:
                             new_pieces.append(joined)
 
         if not new_pieces:
-            return []
+            return new_pieces
 
+        # Remove any duplicates before returning.
         new_pieces.sort()
         prev = new_pieces[0]
         result = [prev]
@@ -603,10 +604,10 @@ class Finder:
 
         return result
 
-    # Called with a list of pieces, where each piece is list [x, y, p]
-    # where x and y are the position, and i the id of the original piece.
     def assemble_pieces(self, big_piece, pieces):
-        self._level += 1
+        """Called with a list of pieces, where each piece is list [x, y, p]
+        where x and y are the position, and i the id of the original piece.
+        """
         if len(pieces) == 1:
             self.evaluate_candidates(
                 self.find_joins(big_piece, pieces[0], point_limit=None)
@@ -622,8 +623,6 @@ class Finder:
                     self.assemble_pieces(join, omit_i)
                     if self._stop:
                         break
-
-        self._level -= 1
 
     def find_solutions(self):
         self.assemble_pieces(P0, [P1, P2, P3])
