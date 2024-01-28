@@ -216,33 +216,24 @@ def vertex_id(x, y, direction):
 
 class PieceScanner:
     def __init__(self, piece):
-        """Use depth-first search to find the boundary of the piece.
-        For each instance of two adjacent cells (inside, outside) where inside
-        is in the piece but outside is not, call report_border_cell(inside, d),
-        where is the direction from inside to outside. report_border_cell
-        is never called more than once with the same arguments.
+        """Find the boundary of the piece.  For each instance of two adjacent
+        cells (inside, outside) where inside is in the piece but outside is not,
+        store the border between them in self._border_map.
         """
         self._border_map = {}
         self._early_exit = False
 
-        if len(piece) == 0:
-            return
-
         visited = set()
         in_piece = set(p[0] for p in piece)
-        examine = {piece[0][0]}
-        while examine:
-            cell = examine.pop()
-            visited.add(cell)
+        for cell, _ in piece:
             for adj, direction in adjacent(cell):
-                if adj in in_piece:
-                    if adj not in visited:
-                        examine.add(adj)
-                else:
+                if adj not in in_piece:
                     # Store the border
                     x, y = cell
                     key = vertex_id(x, y, COUNTERCLOCKWISE_DIRECTION[direction])
                     if key in self._border_map:
+                        # The border intersects itself, which can only happen
+                        # if there is a hole in the piece.
                         self._early_exit = True
                         return
                     self._border_map[key] = (
