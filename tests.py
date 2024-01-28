@@ -231,32 +231,12 @@ gutter_piece = main.make_cells(
 )
 
 
-def depth_first_search_no_dups(piece):
-    s = set()
-
-    def report_border_cell(xy, direction):
-        assert direction in range(0, main.NUM_DIRECTIONS)
-        assert (xy, direction) is not set
-
-    main.find_border(piece, report_border_cell)
-
-
-def test_depth_first_search():
-    depth_first_search_no_dups([]) == 0
-    depth_first_search_no_dups(big_piece) == 0
-    depth_first_search_no_dups(round_piece) == 0
-    depth_first_search_no_dups(notch_piece) == 0
-    depth_first_search_no_dups(single_hole_piece) == 1
-    depth_first_search_no_dups(double_hole_piece) == 1
-    depth_first_search_no_dups(three_hole_piece) == 3
-
-
 def how_concave(piece, answer):
     assert (
         main.PieceScanner(piece).count_dents_or_points(dents_not_points=True)
         == answer
     )
-    assert main.PieceScanner(piece).is_concave() == (answer == 0)
+    assert main.PieceScanner(piece).is_convex() == (answer == 0)
 
 
 def test_concave():
@@ -290,7 +270,7 @@ def check_holes(piece, answer):
             main.PieceScanner(piece).count_dents_or_points(bool) is None
         )
     if answer:
-        assert not main.PieceScanner(piece).is_concave()
+        assert not main.PieceScanner(piece).is_convex()
 
 
 def test_holes():

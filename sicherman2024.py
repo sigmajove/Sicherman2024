@@ -165,8 +165,11 @@ def normalize(cells):
     return tuple(renumbered)
 
 
-def fingerprint(cells):
-    return hash(normalize(cells)) % 100000000
+def fingerprint(piece):
+    """Returns an eight digit hash code to identify the piece.
+    For debugging.
+    """
+    return hash(normalize(piece)) % 100000000
 
 
 def rotate_cell(xy):
@@ -219,6 +222,10 @@ def vertex_id(x, y, direction):
 
 
 class PieceScanner:
+    """A worker class that can compoute different metrics for a piece.
+    Since the members are intrusive, at most one of them should be called.
+    """
+
     def __init__(self, piece):
         """Find the boundary of the piece.  For each instance of two adjacent
         cells (inside, outside) where inside is in the piece but outside is not,
@@ -251,7 +258,8 @@ class PieceScanner:
         Return None if the piece has a hole.
         """
         if self._early_exit:
-            return None  # There is a loop.
+            # There is a loop.
+            return None
         if not self._border_map:
             return 0
 
@@ -294,64 +302,6 @@ class PieceScanner:
             if vertex == start:
                 break
         return not self._border_map
-
-    def number_of_points(self):
-        """Return the number of points available to fill concave dents,
-        or None if the piece has a hole.
-        """
-        if self._early_exit:
-            return None  # There is a loop.
-        start, next_one = self._border_map.popitem()
-        total = max(0, -turn_angle(next_one[1], start[1]))
-        while next_one[0] != start:
-            next_next = self._border_map.pop(next_one[0])
-            total += max(0, -turn_angle(next_one[1], next_next[1]))
-            next_one = next_next
-        return (
-            None  # There is a loop.
-            if self._border_map
-            else total + max(0, -turn_angle(next_one[1], start[1]))
-        )
-
-
-def get_border(piece):
-    border_map = {}
-    in_piece = set(p[0] for p in piece)
-    examine = {piece[0][0]}
-    visited = set()
-    while examine:
-        cell = examine.pop()
-        visited.add(cell)
-        for adj, direction in adjacent(cell):
-            if adj in in_piece:
-                if adj not in visited:
-                    examine.add(adj)
-            else:
-                x, y = cell
-                key = vertex_id(x, y, COUNTERCLOCKWISE_DIRECTION[direction])
-                if key in border_map:
-                    return None
-                value = (
-                    vertex_id(x, y, CLOCKWISE_DIRECTION[direction]),
-                    direction,
-                )
-                border_map[key] = value
-
-    start, next_one = border_map.popitem()
-    total = 0
-    t = turn_angle(next_one[1], start[1])
-    if t > 0:
-        total += t
-    while next_one[0] != start:
-        n2 = border_map.pop(next_one[0])
-        t = turn_angle(next_one[1], n2[1])
-        if t > 0:
-            total += t
-        next_one = n2
-    t = turn_angle(next_one[1], start[1])
-    if t > 0:
-        total += t
-    return total
 
 
 def make_variations(cells):
@@ -473,9 +423,6 @@ P3 = Piece(
     ],
 )
 
-# The colors for the pieces are chosen somewhat subjectively.
-COLORS = [f"hsl({hue}, 70%, 50%)" for hue in [0, 60, 150, 270]]
-
 
 def border_table(piece):
     """Locate all the cells in this piece that are adjacent to one or
@@ -509,6 +456,22 @@ def contains_duplicate(piece):
     return False
 
 
+def remove_duplicates(new_pieces):
+    """Sorts new_pieces and filters out any duplicates."""
+    if not new_pieces:
+        return new_pieces
+
+    new_pieces.sort()
+    prev = new_pieces[0]
+    result = [prev]
+    for p in new_pieces[1:]:
+        if prev != p:
+            result.append(p)
+        prev = p
+
+    return result
+
+
 class Finder:
     """Class wrapper to allow assemble_pieces to have global variables."""
 
@@ -529,16 +492,43 @@ class Finder:
         self._progress = tqdm.tqdm(unit=" candidates")
 
     def evaluate_candidates(self, candidates):
+        """Tests all the candidates and adds the convex ones to
+        self._solutions.  Ignores any candidates we have already tested.
+        """
         for candidate in candidates:
             hashable = normalize(candidate)
             if hashable not in self._tested:
                 self._tested.add(hashable)
-                trace = hashable[0][1] == 0 and fingerprint(hashable) == 75277
                 if PieceScanner(hashable).is_convex():
                     self._solutions.append(hashable)
             self._num_candidates += 1
 
         self._progress.update(len(candidates))
+
+    def _is_viable_piece(self, joined, point_limit):
+        if contains_duplicate(joined):
+            return False
+
+        if point_limit is None:
+            # Don't bother with any more checking.
+            # That will be done in evalulate_candidates.
+            return True
+
+        dent_count = PieceScanner(joined).count_dents_or_points(
+            dents_not_points=True
+        )
+        if dent_count is None:
+            # There is a hole
+            self._hole_prunes += 1
+            return False
+
+        # Only continue if there are enough points left in the remaining
+        # pieces to fill all  the existing dents.
+        if dent_count > point_limit:
+            self._point_prunes += 1
+            return False
+
+        return True
 
     def find_joins(self, piece0, pieces, point_limit):
         """Find the ways piece0 and pieces can be stuck together to form a new
@@ -567,46 +557,14 @@ class Finder:
                         for p in piece1:
                             joined.append(((p[0][0] + dx, p[0][1] + dy), p[1]))
 
-                        if contains_duplicate(joined):
-                            append = False
-                        elif point_limit is None:
-                            # Don't bother with any more checking.
-                            # That will be done in evalulate_candidates.
-                            append = True
-                        else:
-                            dent_count = PieceScanner(
-                                joined
-                            ).count_dents_or_points(dents_not_points=True)
-                            if dent_count is None:
-                                self._hole_prunes += 1
-                                append = False  # There is a hole
-                            else:
-                                # Only continue if there are enough points
-                                # left in the remaining pieces to fill all
-                                # the existing dents.
-                                append = dent_count <= point_limit
-                                if not append:
-                                    self._point_prunes += 1
-                        if append:
+                        if self._is_viable_piece(joined, point_limit):
                             new_pieces.append(joined)
 
-        if not new_pieces:
-            return new_pieces
-
-        # Remove any duplicates before returning.
-        new_pieces.sort()
-        prev = new_pieces[0]
-        result = [prev]
-        for p in new_pieces[1:]:
-            if prev != p:
-                result.append(p)
-            prev = p
-
-        return result
+        return remove_duplicates(new_pieces)
 
     def assemble_pieces(self, big_piece, pieces):
         """Called with a list of pieces, where each piece is list [x, y, p]
-        where x and y are the position, and i the id of the original piece.
+        where x and y are the position, and p the id of the original piece.
         """
         if len(pieces) == 1:
             self.evaluate_candidates(
@@ -625,15 +583,17 @@ class Finder:
                         break
 
     def find_solutions(self):
+        """The main entry point of the class."""
         self.assemble_pieces(P0, [P1, P2, P3])
         self._progress.close()
 
         print(f"Pruned {self._point_prunes} for points")
         print(f"Pruned {self._hole_prunes} for holes")
         print(f"Tested {self._num_candidates} candidates")
-        print(f"Found {len(self._solutions)} solutions")
+        n = len(self._solutions)
+        print(f"Found {n} solution{'' if n==1 else 's'}")
 
-        # Write all the solutions into a file.
+        # Write up to five solutions into a file.
         if self._solutions:
             self._solutions = self._solutions[:5]
             answer = list(map(draw_piece, self._solutions))
@@ -644,8 +604,12 @@ class Finder:
                 a.close()
 
 
-# Draws a list of cells, returning a PIL image
+# The colors for the pieces are chosen somewhat subjectively.
+COLORS = [f"hsl({hue}, 70%, 50%)" for hue in [0, 60, 150, 270]]
+
+
 def draw_piece(cells):
+    """Draws a list of cells, returning a PIL image."""
     min_x = math.inf
     max_x = -math.inf
     min_y = math.inf
@@ -670,13 +634,14 @@ def draw_piece(cells):
     return im
 
 
-# For debugging.
-# Return an image of the piece annotated with the coordinates of each cell.
-
-font = ImageFont.truetype("arial.ttf", size=15)
+FONT = ImageFont.truetype("arial.ttf", size=15)
 
 
 def map_piece(cells):
+    """For debugging.
+    Return an image of the piece annotated with the coordinates of each cell,
+    and a hashed fingerprint for the piece.
+    """
     min_x = math.inf
     max_x = -math.inf
     min_y = math.inf
@@ -703,10 +668,10 @@ def map_piece(cells):
         if not points_up(*c[0]):
             av_y -= 3
         text = "{} {}".format(*c[0])
-        d.text((av_x - 13, av_y), text, font=font, fill="white")
+        d.text((av_x - 13, av_y), text, font=FONT, fill="white")
 
     d.text(
-        (3, height - 21), f"{fingerprint(cells):08}", font=font, fill="black"
+        (3, height - 21), f"{fingerprint(cells):08}", font=FONT, fill="black"
     )
 
     return im
