@@ -2,8 +2,6 @@
 See https://sicherman.net/2024/2024.html
 """
 
-import cProfile
-import itertools
 import math
 from PIL import Image, ImageDraw, ImageFont
 import tqdm
@@ -98,7 +96,7 @@ VERTEX_ID_TABLE = [
 
 def vertex_id(x, y, direction):
     """We can identify a vertex with the coordinates of a cell,
-    and a direction that points from the center of the cell to the vertix.
+    and a direction that points from the center of the cell to the vertex.
     But using this convention, a vertex can have three different names.
     Instead use the convention it is the NORTH vertex of a cell. That
     name is unique.
@@ -108,8 +106,8 @@ def vertex_id(x, y, direction):
 
 
 def adjacent_cell(x, y, direction):
-    """Return the (x, y) coordinates of the adjacent cell in the given
-    direction. Raises an exception we cannot go in that direction from xy.
+    """Return the coordinates of the adjacent cell in the given
+    direction. Raises an exception we cannot go in that direction from (x, y).
     """
     if points_up(x, y):
         # Upward pointing triangle
@@ -120,7 +118,7 @@ def adjacent_cell(x, y, direction):
         if direction == SOUTH:
             return (x, y + 1)
     else:
-        # Downward pointing triangle/
+        # Downward pointing triangle
         if direction == SOUTHEAST:
             return (x + 1, y)
         if direction == SOUTHWEST:
@@ -131,11 +129,10 @@ def adjacent_cell(x, y, direction):
     raise RuntimeError(f"Cannot move {DIRECTION_NAME[direction]}")
 
 
-def adjacent(xy):
-    """Generate information about the three cells that are adjacent to xy.
+def adjacent(x, y):
+    """Generate information about the three cells that are adjacent to (x, y).
     For each adjacent cell, returns [(x, y), direction]
     """
-    x, y = xy
     if points_up(x, y):
         yield [(x + 1, y), NORTHEAST]
         yield [(x - 1, y), NORTHWEST]
@@ -146,12 +143,10 @@ def adjacent(xy):
         yield [(x, y - 1), NORTH]
 
 
-def vertices(xy):
-    """Generate the three floating point coordinates of the vertices of the
-    triangle. Intended for use with drawing packages.
+def vertices(x, y):
+    """Generate the three floating point coordinates of the vertices
+    of the triangle. Intended for use with drawing packages.
     """
-    x, y = xy
-
     side = 100  # width of a trianglar cell in pixels
 
     half_side = 0.5 * side
@@ -159,9 +154,9 @@ def vertices(xy):
     left = center - half_side
     right = center + half_side
 
-    side_root3h = half_side * math.sqrt(3)
-    top = side_root3h * (y - 1)
-    bottom = side_root3h * y
+    triangle_height = math.sqrt(3) * half_side
+    top = triangle_height * (y - 1)
+    bottom = triangle_height * y
 
     if points_up(x, y):
         yield (center, top)
@@ -180,8 +175,8 @@ def normalize(cells):
       (2) The first tuple, if there is one, has x == 0 or x == 1.
       (3) The first tuple, if there is one, has y == 0.
     """
-    min_x = min(c[0][0] for c in cells)
-    min_y = min(c[0][1] for c in cells)
+    min_x = min(x for (x, _), __ in cells)
+    min_y = min(y for (_, y), __ in cells)
 
     # Pieces cannot be translated arbitrarily.
     # if min_x + min_y is odd, the translation converts up-pointing
@@ -190,41 +185,15 @@ def normalize(cells):
     if (min_x + min_y) % 2 == 1:
         min_x -= 1
 
-    renumbered = [((c[0][0] - min_x, c[0][1] - min_y), c[1]) for c in cells]
+    renumbered = [((x - min_x, y - min_y), p) for (x, y), p in cells]
     renumbered.sort()
     return tuple(renumbered)
 
 
-def rotate_cell(xy):
-    """Return the cell rotated 60 degrees (counterclockwise) around the
-    north vertex of the triangle with coordinates (0, 0).
-    """
-    x, y = xy
-    # It took me a couple of days to discover this formula.
-    # I don't have a simple explanation for why it works.
-    # The complicated explanation involves a lot of trigonometry and algebra.
-    return (y - (-x - y - 1) // 2, (y - x) // 2)
-
-
-def mirror_cell(xy):
-    """Return the cell reflected about the y-axis."""
-    x, y = xy
-    return (-x, y)
-
-
-def rotate(piece):
-    """Rotates a piece 60 degrees counterclockwise"""
-    return normalize([[rotate_cell(p[0]), p[1]] for p in piece])
-
-
-def flip(piece):
-    """Creates a mirror image of a piece by flipping it on the y axis"""
-    return normalize([[mirror_cell(p[0]), p[1]] for p in piece])
-
-
 class PieceScanner:
     """A worker class that can compoute different metrics for a piece.
-    Since the members are intrusive, at most one of them should be called.
+    Since count_dents_or_points and is_convex are intrusive, at most
+    one of them should be called.
     """
 
     def __init__(self, piece):
@@ -236,11 +205,10 @@ class PieceScanner:
 
         in_piece = {cell for cell, _ in piece}
         self._border_map = {}
-        for cell, _ in piece:
-            for adj, direction in adjacent(cell):
+        for (x, y), _ in piece:
+            for adj, direction in adjacent(x, y):
                 if adj not in in_piece:
                     # Store the border
-                    x, y = cell
                     key = vertex_id(x, y, COUNTERCLOCKWISE_DIRECTION[direction])
                     if key in self._border_map:
                         # The border intersects itself, which can only happen
@@ -270,7 +238,7 @@ class PieceScanner:
         total = 0
         vertex = start
         while True:
-            # Deleted and count every vertex in the loop.
+            # Delete and count every vertex in the loop.
             next_vertex = self._border_map.pop(vertex[0])
             turns = turn_angle(vertex[1], next_vertex[1])
             total += max(0, turns if dents_not_points else -turns)
@@ -279,7 +247,7 @@ class PieceScanner:
             # When we have counted every vertex we are done.
             if vertex == start:
                 break
-        # if there are any verticies left in _border_map, we have a loop.
+        # if there are any vertices left in _border_map, we have a hole.
         return None if self._border_map else total
 
     def is_convex(self):
@@ -305,23 +273,9 @@ class PieceScanner:
         return not self._border_map
 
 
-def make_variations(cells):
-    """Return a list of the twelve variations of the piece, considering
-    rotations and reflections. There will be no duplicates in this list
-    because none of the puzzle pieces are symmetrical.
-    """
-    result = [cells]
-    for _ in range(5):
-        result.append(rotate(result[-1]))
-    result.append(flip(result[-1]))
-    for _ in range(5):
-        result.append(rotate(result[-1]))
-    return result
-
-
 class Piece:
     """
-    A piece that gets added to the puzzle.
+    One of the original pieces of the puzzle.
 
     Attributes:
         points (int): metric for trimming the search.
@@ -334,13 +288,49 @@ class Piece:
         points = PieceScanner(cells).count_dents_or_points(
             dents_not_points=False
         )
+        # Puzzle pieces should not have holes.
         assert points is not None
         self.points = points
-        self.variations = make_variations(cells)
+        self.variations = Piece._make_variations(cells)
+
+    @staticmethod
+    def _rotate_cell(x, y):
+        """Return the cell rotated 60 degrees (counterclockwise) around the
+        north vertex of the triangle with coordinates (0, 0).
+        """
+        # It took me a couple of days to discover this formula.
+        # I don't have a simple explanation for why it works.
+        # The complicated explanation involves a lot of trigonometry and
+        # algebra.
+        return (y - (-x - y - 1) // 2, (y - x) // 2)
+
+    @staticmethod
+    def _rotate(piece):
+        """Rotates a piece 60 degrees counterclockwise"""
+        return normalize([[Piece._rotate_cell(x, y), p] for (x, y), p in piece])
+
+    @staticmethod
+    def _flip(piece):
+        """Creates a mirror image of a piece by flipping it on the y axis"""
+        return normalize([[(-x, y), p] for (x, y), p in piece])
+
+    @staticmethod
+    def _make_variations(cells):
+        """Return a list of the twelve variations of the piece, considering
+        rotations and reflections. There will be no duplicates in this list
+        because none of the puzzle pieces are symmetrical.
+        """
+        result = [cells]
+        for _ in range(5):
+            result.append(Piece._rotate(result[-1]))
+        result.append(Piece._flip(result[-1]))
+        for _ in range(5):
+            result.append(Piece._rotate(result[-1]))
+        return result
 
 
 def make_cells(piece_id, picture):
-    """Reads an ASCII Art representation of a piece, and returns the
+    """Read an ASCII Art representation of a piece, and return the
     list of tuples that represents that piece.  We don't check that the
     artwork is well-formed; we just scan it for key patterns to get the
     proper x, y coordinates.
@@ -437,7 +427,7 @@ def border_table(piece):
     in_piece = {e for e, _ in piece}
 
     for e, _ in piece:
-        for xy, direction in adjacent(e):
+        for xy, direction in adjacent(*e):
             if xy not in in_piece:
                 result[direction].append(e)
 
@@ -474,7 +464,7 @@ def remove_duplicates(cells):
 
 
 class Finder:
-    """Class wrapper to allow assemble_pieces to have global variables."""
+    """Contains the algorithm for solving the puzzle"""
 
     def __init__(self):
         # The process for generating candidates generates duplicates.
@@ -482,14 +472,13 @@ class Finder:
         # so we test each unique candidate only once.
         self._tested = set()
 
-        # The number of candidates we tested with how_convex
-        self._num_candidates = 0
         self._point_prunes = 0
         self._hole_prunes = 0
 
+        # Collects the solutions we find.
         self._solutions = []
 
-        self._stop = False
+        # Reports progress to the goal.
         self._progress = tqdm.tqdm(unit=" candidates")
 
     def evaluate_candidates(self, candidates):
@@ -503,10 +492,7 @@ class Finder:
                 if PieceScanner(normalized).is_convex():
                     self._solutions.append(normalized)
 
-        self._num_candidates += len(candidates)
         self._progress.update(len(candidates))
-#       if self._num_candidates >= 100000:
-#           self._stop = True
 
     def _is_viable_piece(self, joined, point_limit):
         """Determine whether the newly joined piece satisifies
@@ -518,9 +504,10 @@ class Finder:
 
         if point_limit is None:
             # Don't bother with any more checking.
-            # That will be done in evalulate_candidates.
+            # That will be done in evaluate_candidates.
             return True
 
+        # Count the number of dents in joined.
         dent_count = PieceScanner(joined).count_dents_or_points(
             dents_not_points=True
         )
@@ -557,6 +544,7 @@ class Finder:
                         dx = x2 - x1
                         dy = y2 - y1
 
+                        # Start with a copy of big_piece.
                         joined = [*big_piece]
 
                         # Append all the cells of piece1, adjusting their
@@ -567,6 +555,8 @@ class Finder:
                         if self._is_viable_piece(joined, point_limit):
                             new_pieces.append(joined)
 
+        # The join algorithm can produce duplicate pieces.
+        # Detect and remove them.
         return remove_duplicates(new_pieces)
 
     def assemble_pieces(self, big_piece, pieces):
@@ -586,8 +576,6 @@ class Finder:
                     point_limit=sum(p.points for p in omit_i),
                 ):
                     self.assemble_pieces(join, omit_i)
-                    if self._stop:
-                        break
 
     def find_solutions(self):
         """The main entry point of the class."""
@@ -596,11 +584,12 @@ class Finder:
 
         print(f"Pruned {self._point_prunes} for points")
         print(f"Pruned {self._hole_prunes} for holes")
-        print(f"Tested {self._num_candidates} candidates")
         n = len(self._solutions)
         print(f"Found {n} solution{'' if n==1 else 's'}")
 
-        # Write up to five solutions into a file.
+        # Write the solutions into the file "answer.png".
+        # There should be only one solution, but bugs have been
+        # known to produce thousands.  Only write out the first five.
         if self._solutions:
             self._solutions = self._solutions[:5]
             answer = list(map(draw_piece, self._solutions))
@@ -622,27 +611,27 @@ def draw_piece(cells):
     min_y = math.inf
     max_y = -math.inf
 
-    for c in cells:
-        for v in vertices(c[0]):
-            min_x = min(min_x, v[0])
-            max_x = max(max_x, v[0])
-            min_y = min(min_y, v[1])
-            max_y = max(max_y, v[1])
+    for (x, y), _ in cells:
+        for vx, vy in vertices(x, y):
+            min_x = min(min_x, vx)
+            max_x = max(max_x, vx)
+            min_y = min(min_y, vy)
+            max_y = max(max_y, vy)
 
     width = int(math.ceil(1 + max_x - min_x))
     height = int(math.ceil(1 + max_y - min_y))
     im = Image.new("RGB", (width, height), color="white")
     d = ImageDraw.Draw(im)
 
-    for c in cells:
-        edges = [((v[0] - min_x), (v[1] - min_y)) for v in vertices(c[0])]
-        d.polygon(edges, fill=COLORS[c[1]], outline="white")
+    for (x, y), p in cells:
+        edges = [((vx - min_x), (vy - min_y)) for vx, vy in vertices(x, y)]
+        d.polygon(edges, fill=COLORS[p], outline="white")
 
     return im
 
 
 def fingerprint(piece):
-    """Returns an eight-digit hash code to identify the piece.
+    """Return an eight-digit hash code to identify the piece.
     For debugging.
     """
     return hash(normalize(piece)) % 100000000
@@ -661,27 +650,27 @@ def map_piece(cells):
     min_y = math.inf
     max_y = -math.inf
 
-    for c in cells:
-        for v in vertices(c[0]):
-            min_x = min(min_x, v[0])
-            max_x = max(max_x, v[0])
-            min_y = min(min_y, v[1])
-            max_y = max(max_y, v[1])
+    for (x, y), _ in cells:
+        for vx, vy in vertices(x, y):
+            min_x = min(min_x, vx)
+            max_x = max(max_x, vx)
+            min_y = min(min_y, vy)
+            max_y = max(max_y, vy)
 
     width = int(math.ceil(1 + max_x - min_x))
     height = int(math.ceil(1 + max_y - min_y) + 22)
     im = Image.new("RGB", (width, height), color="white")
     d = ImageDraw.Draw(im)
 
-    for c in cells:
-        edges = [((v[0] - min_x), (v[1] - min_y)) for v in vertices(c[0])]
-        d.polygon(edges, fill=COLORS[c[1]], outline="white")
+    for (x, y), p in cells:
+        edges = [((vx - min_x), (vy - min_y)) for vx, vy in vertices(x, y)]
+        d.polygon(edges, fill=COLORS[p], outline="white")
 
-        av_x = sum(e[0] for e in edges) / len(edges)
-        av_y = sum(e[1] for e in edges) / len(edges)
-        if not points_up(*c[0]):
+        av_x = sum(x for x, _ in edges) / len(edges)
+        av_y = sum(y for _, y in edges) / len(edges)
+        if not points_up(x, y):
             av_y -= 3
-        text = "{} {}".format(*c[0])
+        text = f"{x} {y}"
         d.text((av_x - 13, av_y), text, font=FONT, fill="white")
 
     d.text(
@@ -713,4 +702,3 @@ def show_images(images):
 
 if __name__ == "__main__":
     Finder().find_solutions()
-#   cProfile.run("Finder().find_solutions()")
