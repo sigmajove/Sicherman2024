@@ -561,8 +561,8 @@ class Finder:
 
                         # Append all the cells of piece1, adjusting their
                         # coordinates to be consistent with big_piece.
-                        for p in piece1:
-                            joined.append(((p[0][0] + dx, p[0][1] + dy), p[1]))
+                        for (x, y), p in piece1:
+                            joined.append(((x + dx, y + dy), p))
 
                         if self._is_viable_piece(joined, point_limit):
                             new_pieces.append(joined)
