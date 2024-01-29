@@ -8,7 +8,7 @@ def test_rotate():
             start = (x, y)
             orbit = start
             for _ in range(6):
-                orbit = main.rotate_cell(orbit)
+                orbit = main.Piece._rotate_cell(*orbit)
             assert orbit == start
 
 
