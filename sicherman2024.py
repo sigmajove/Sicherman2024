@@ -2,6 +2,8 @@
 See https://sicherman.net/2024/2024.html
 """
 
+import itertools
+import operator
 import math
 from PIL import Image, ImageDraw, ImageFont
 import tqdm
@@ -84,6 +86,27 @@ def points_up(x, y):
     return (x + y) % 2 == 0
 
 
+VERTEX_ID_TABLE = [
+    (00, 00),  # NORTH
+    (-1, 00),  # NORTHWEST
+    (-1, +1),  # SOUTHWEST
+    (00, +1),  # SOUTH
+    (+1, +1),  # SOUTHEAST
+    (+1, 00),  # NORTHEAST
+]
+
+
+def vertex_id(x, y, direction):
+    """We can identify a vertex with the coordinates of a cell,
+    and a direction that points from the center of the cell to the vertix.
+    But using this convention, a vertex can have three different names.
+    Instead use the convention it is the NORTH vertix of a cell. That
+    name is unique.
+    """
+    dx, dy = VERTEX_ID_TABLE[direction]
+    return (x + dx, y + dy)
+
+
 def adjacent_cell(xy, direction):
     """Return the (x, y) coordinates of the adjacent cell in the given
     direction. Raises an exception we cannot go in that direction from xy.
@@ -125,7 +148,7 @@ def adjacent(xy):
 
 
 def vertices(xy):
-    """Return the three floating point coordinates of the vertices of the
+    """Generate the three floating point coordinates of the vertices of the
     triangle. Intended for use with drawing packages.
     """
     x, y = xy
@@ -141,15 +164,39 @@ def vertices(xy):
     top = side_root3h * (y - 1)
     bottom = side_root3h * y
 
-    return (
-        [(center, top), (right, bottom), (left, bottom)]
-        if points_up(x, y)
-        else [(left, top), (right, top), (center, bottom)]
-    )
+    if points_up(x, y):
+        yield (center, top)
+        yield (right, bottom)
+        yield (left, bottom)
+    else:
+        yield (left, top)
+        yield (right, top)
+        yield (center, bottom)
+
+
+def is_normalized(cells):
+    if type(cells) is not tuple:
+        return False
+    if len(cells) == 0:
+        return True
+    # Check that it is sorted by (x, y) with no duplicates.
+    if not all(map(lambda p: p[0] < p[1], itertools.pairwise(cells))):
+        return False
+    if min(c[0][1] for c in cells) != 0:
+        return False
+    return min(c[0][0] for c in cells) in range(0, 2)
 
 
 def normalize(cells):
-    """Return a canonical, hashable, representation of a list of cells."""
+    """Return a canonical, hashable, representation of a list of cells.
+    A normalized tuple has three properties:
+      (1) it is sorted.
+      (2) The first tuple, if there is one, has x == 0 or x == 1.
+      (3) The first tuple, if there is one, has y == 0.
+    """
+    if is_normalized(cells):
+        raise RuntimeError("redundant normalization")
+
     min_x = min(c[0][0] for c in cells)
     min_y = min(c[0][1] for c in cells)
 
@@ -163,13 +210,6 @@ def normalize(cells):
     renumbered = [((c[0][0] - min_x, c[0][1] - min_y), c[1]) for c in cells]
     renumbered.sort()
     return tuple(renumbered)
-
-
-def fingerprint(piece):
-    """Returns an eight digit hash code to identify the piece.
-    For debugging.
-    """
-    return hash(normalize(piece)) % 100000000
 
 
 def rotate_cell(xy):
@@ -197,28 +237,6 @@ def rotate(piece):
 def flip(piece):
     """Creates a mirror image of a piece by flipping it on the y axis"""
     return normalize([[mirror_cell(p[0]), p[1]] for p in piece])
-
-
-def vertex_id(x, y, direction):
-    """We can identify a vertex with the coordinates of a cell,
-    and a direction that points from the center of the cell to the vertix.
-    But using this convention, a vertex can have three different names.
-    Instead use the convention it is the NORTH vertix of a cell. That
-    name is unique.
-    """
-    if direction == NORTH:
-        return (x, y)
-    if direction == NORTHEAST:
-        return (x + 1, y)
-    if direction == NORTHWEST:
-        return (x - 1, y)
-    if direction == SOUTHEAST:
-        return (x + 1, y + 1)
-    if direction == SOUTHWEST:
-        return (x - 1, y + 1)
-    if direction == SOUTH:
-        return (x, y + 1)
-    raise ValueError(f"{direction} is not a direction")
 
 
 class PieceScanner:
@@ -443,28 +461,28 @@ def border_table(piece):
     return result
 
 
-def contains_duplicate(piece):
-    """Sorts piece and returns whether it contains duplicate coordinates."""
-    if not piece:
+def contains_duplicate(cells):
+    """Sorts cells and returns whether it contains duplicate coordinates."""
+    if not cells:
         return False
-    piece.sort()
-    prev = piece[0]
-    for p in piece[1:]:
+    cells.sort()
+    prev = cells[0]
+    for p in cells[1:]:
         if prev[0] == p[0]:
             return True
         prev = p
     return False
 
 
-def remove_duplicates(new_pieces):
-    """Sorts new_pieces and filters out any duplicates."""
-    if not new_pieces:
-        return new_pieces
+def remove_duplicates(cells):
+    """Sorts cells and filters out any duplicates."""
+    if not cells:
+        return cells
 
-    new_pieces.sort()
-    prev = new_pieces[0]
+    cells.sort()
+    prev = cells[0]
     result = [prev]
-    for p in new_pieces[1:]:
+    for p in cells[1:]:
         if prev != p:
             result.append(p)
         prev = p
@@ -552,7 +570,7 @@ class Finder:
 
                         joined = [*piece0]
 
-                        # Append all the cells of piece1, adjusting the
+                        # Append all the cells of piece1, adjusting their
                         # coordinates to be consistent with piece0.
                         for p in piece1:
                             joined.append(((p[0][0] + dx, p[0][1] + dy), p[1]))
@@ -632,6 +650,13 @@ def draw_piece(cells):
         d.polygon(edges, fill=COLORS[c[1]], outline="white")
 
     return im
+
+
+def fingerprint(piece):
+    """Returns an eight-digit hash code to identify the piece.
+    For debugging.
+    """
+    return hash(normalize(piece)) % 100000000
 
 
 FONT = ImageFont.truetype("arial.ttf", size=15)
