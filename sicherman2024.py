@@ -107,11 +107,10 @@ def vertex_id(x, y, direction):
     return (x + dx, y + dy)
 
 
-def adjacent_cell(xy, direction):
+def adjacent_cell(x, y, direction):
     """Return the (x, y) coordinates of the adjacent cell in the given
     direction. Raises an exception we cannot go in that direction from xy.
     """
-    x, y = xy
     if points_up(x, y):
         # Upward pointing triangle
         if direction == NORTHEAST:
@@ -506,8 +505,8 @@ class Finder:
 
         self._num_candidates += len(candidates)
         self._progress.update(len(candidates))
-        if self._num_candidates >= 100000:
-            self._stop = True
+#       if self._num_candidates >= 100000:
+#           self._stop = True
 
     def _is_viable_piece(self, joined, point_limit):
         """Determine whether the newly joined piece satisifies
@@ -538,30 +537,30 @@ class Finder:
 
         return True
 
-    def find_joins(self, piece0, pieces, point_limit):
-        """Find the ways piece0 and pieces can be stuck together to form a new
-        piece. Return the list of all possible joins.
+    def find_joins(self, big_piece, other, point_limit):
+        """Find the ways big_piece and other.variations can be stuck together
+        to form a new piece. Return the list of all possible joins.
         """
         new_pieces = []
-        bt0 = border_table(piece0)
-        for piece1 in pieces.variations:
+        bt0 = border_table(big_piece)
+        for piece1 in other.variations:
             bt1 = border_table(piece1)
 
             for direction in range(NUM_DIRECTIONS):
-                for cell0 in bt0[direction]:
-                    for cell1 in bt1[OPPOSITE_DIRECTION[direction]]:
-                        # The two pieces can by stuck together at cell0 and
+                for x0, y0 in bt0[direction]:
+                    for x1, y1 in bt1[OPPOSITE_DIRECTION[direction]]:
+                        # The two other can by stuck together at cell0 and
                         # cell1.  We will renumber piece1 so that cell1 has
                         # the coordinates (x, y)
 
-                        x, y = adjacent_cell(cell0, direction)
-                        dx = x - cell1[0]
-                        dy = y - cell1[1]
+                        x2, y2 = adjacent_cell(x0, y0, direction)
+                        dx = x2 - x1
+                        dy = y2 - y1
 
-                        joined = [*piece0]
+                        joined = [*big_piece]
 
                         # Append all the cells of piece1, adjusting their
-                        # coordinates to be consistent with piece0.
+                        # coordinates to be consistent with big_piece.
                         for p in piece1:
                             joined.append(((p[0][0] + dx, p[0][1] + dy), p[1]))
 
@@ -713,4 +712,5 @@ def show_images(images):
 
 
 if __name__ == "__main__":
-    cProfile.run("Finder().find_solutions()")
+    Finder().find_solutions()
+#   cProfile.run("Finder().find_solutions()")
