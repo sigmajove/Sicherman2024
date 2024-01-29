@@ -2,8 +2,8 @@
 See https://sicherman.net/2024/2024.html
 """
 
+import cProfile
 import itertools
-import operator
 import math
 from PIL import Image, ImageDraw, ImageFont
 import tqdm
@@ -100,7 +100,7 @@ def vertex_id(x, y, direction):
     """We can identify a vertex with the coordinates of a cell,
     and a direction that points from the center of the cell to the vertix.
     But using this convention, a vertex can have three different names.
-    Instead use the convention it is the NORTH vertix of a cell. That
+    Instead use the convention it is the NORTH vertex of a cell. That
     name is unique.
     """
     dx, dy = VERTEX_ID_TABLE[direction]
@@ -174,19 +174,6 @@ def vertices(xy):
         yield (center, bottom)
 
 
-def is_normalized(cells):
-    if type(cells) is not tuple:
-        return False
-    if len(cells) == 0:
-        return True
-    # Check that it is sorted by (x, y) with no duplicates.
-    if not all(map(lambda p: p[0] < p[1], itertools.pairwise(cells))):
-        return False
-    if min(c[0][1] for c in cells) != 0:
-        return False
-    return min(c[0][0] for c in cells) in range(0, 2)
-
-
 def normalize(cells):
     """Return a canonical, hashable, representation of a list of cells.
     A normalized tuple has three properties:
@@ -194,9 +181,6 @@ def normalize(cells):
       (2) The first tuple, if there is one, has x == 0 or x == 1.
       (3) The first tuple, if there is one, has y == 0.
     """
-    if is_normalized(cells):
-        raise RuntimeError("redundant normalization")
-
     min_x = min(c[0][0] for c in cells)
     min_y = min(c[0][1] for c in cells)
 
@@ -514,16 +498,22 @@ class Finder:
         self._solutions.  Ignores any candidates we have already tested.
         """
         for candidate in candidates:
-            hashable = normalize(candidate)
-            if hashable not in self._tested:
-                self._tested.add(hashable)
-                if PieceScanner(hashable).is_convex():
-                    self._solutions.append(hashable)
-            self._num_candidates += 1
+            normalized = normalize(candidate)
+            if normalized not in self._tested:
+                self._tested.add(normalized)
+                if PieceScanner(normalized).is_convex():
+                    self._solutions.append(normalized)
 
+        self._num_candidates += len(candidates)
         self._progress.update(len(candidates))
+        if self._num_candidates >= 100000:
+            self._stop = True
 
     def _is_viable_piece(self, joined, point_limit):
+        """Determine whether the newly joined piece satisifies
+        all the restrictions. As a side effect, sorts joined.
+        """
+
         if contains_duplicate(joined):
             return False
 
@@ -723,4 +713,4 @@ def show_images(images):
 
 
 if __name__ == "__main__":
-    Finder().find_solutions()
+    cProfile.run("Finder().find_solutions()")
