@@ -55,9 +55,6 @@ COUNTERCLOCKWISE_DIRECTION = [
 ]
 
 
-TURNING_POINTS = [-2, -1, None, 1, 2, 0, -2, -1, None, 1, 2]
-
-
 def turn_angle(d0, d1):
     """Describe the turn we make when we change direction from d0 to d1.
     Here are the different results:
@@ -68,7 +65,10 @@ def turn_angle(d0, d1):
       -2:   120 degree right turn
       None: U-turn
     """
-    return TURNING_POINTS[d1 - d0 + 5]
+    return turn_angle.TURNING_POINTS[d1 - d0 + 5]
+
+
+turn_angle.TURNING_POINTS = [-2, -1, None, 1, 2, 0, -2, -1, None, 1, 2]
 
 
 # Puzzle pieces are represented by lists, or tuples where appropriate,
@@ -84,16 +84,6 @@ def points_up(x, y):
     return (x + y) % 2 == 0
 
 
-VERTEX_ID_TABLE = [
-    (00, 00),  # NORTH
-    (-1, 00),  # NORTHWEST
-    (-1, +1),  # SOUTHWEST
-    (00, +1),  # SOUTH
-    (+1, +1),  # SOUTHEAST
-    (+1, 00),  # NORTHEAST
-]
-
-
 def vertex_id(x, y, direction):
     """We can identify a vertex with the coordinates of a cell,
     and a direction that points from the center of the cell to the vertex.
@@ -101,8 +91,18 @@ def vertex_id(x, y, direction):
     Instead use the convention it is the NORTH vertex of a cell. That
     name is unique.
     """
-    dx, dy = VERTEX_ID_TABLE[direction]
+    dx, dy = vertex_id.VERTEX_ID_TABLE[direction]
     return (x + dx, y + dy)
+
+
+vertex_id.VERTEX_ID_TABLE = [
+    (00, 00),  # NORTH
+    (-1, 00),  # NORTHWEST
+    (-1, +1),  # SOUTHWEST
+    (00, +1),  # SOUTH
+    (+1, +1),  # SOUTHEAST
+    (+1, 00),  # NORTHEAST
+]
 
 
 def adjacent_cell(x, y, direction):
