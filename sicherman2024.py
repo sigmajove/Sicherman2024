@@ -300,8 +300,8 @@ class Piece:
         """
         # It took me a couple of days to discover this formula.
         # I don't have a simple explanation for why it works.
-        # The complicated explanation involves a lot of trigonometry and
-        # algebra.
+        # The complicated explanation involves a lot of trigonometry
+        # and algebra.
         return (y - (-x - y - 1) // 2, (y - x) // 2)
 
     @staticmethod
