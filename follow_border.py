@@ -2,6 +2,7 @@ import cairo
 import colorsys
 import math
 import tqdm
+from dataclasses import dataclass
 from matplotlib import colors
 
 # Here are the pieces of the puzzle as expressed by the angle at
@@ -24,24 +25,24 @@ COLORS = [
 ]
 
 
+@dataclass(slots=True)
 class Cursor:
     """A class that can be used to find the vertices of a polygon
     specified by the angle at each vertex.
 
-    A direction is an integer in range(6), specifying an angle at 60
-    degree intervals. Zero means horizontally to the right. Increasing the value
-    by 1 rotates the direction 60 degrees clockwise.
     """
 
-    def __init__(self, x, y, direction):
-        """x, y, and direction specify the position and rotation of
-        the figure whose vertices are computed.
-        (x, y) should be the coordinates desired for the first vertex.
-        direction should be the direction the edge enters the first vertex.
-        """
-        self.x = x
-        self.y = y
-        self.direction = direction
+    # x, y, and direction specify the position and rotation of
+    # the figure whose vertices are computed.
+    # (x, y) should be the coordinates desired for the first vertex.
+    #  direction should be the direction the edge enters the first vertex.
+    x: int
+    y: int
+
+    # A direction is an integer in range(6), specifying an angle at 60
+    # degree intervals. Zero means horizontally to the right. Increasing
+    #  the value by 1 rotates the direction 60 degrees clockwise.
+    direction: int
 
     def advance(self, angle):
         """advance should be called for each vertex of the figure,
@@ -142,7 +143,7 @@ class Solver:
         splice = (
             circular_slice(p0, ii, i)
             + [start]
-            +  circular_slice(p1, j, jj)
+            + circular_slice(p1, j, jj)
             + [finish]
         )
 
@@ -150,18 +151,18 @@ class Solver:
         # This means there is an overlap or hole.
         c = Cursor(0, 0, 0)
         if len(set(c.advance(a) for a in splice)) != len(splice):
-          return None
+            return None
 
-#       # Determine the position of p1
-#       c = Cursor(0, 0, 0)
-#       for v in p0[0:i]:
-#           c.advance(v)
-#       c.advance(start)
-#       for v in p1[j + 1 :]:
-#           c.advance(v)
-#       self._pos_id += 1
+        #       # Determine the position of p1
+        #       c = Cursor(0, 0, 0)
+        #       for v in p0[0:i]:
+        #           c.advance(v)
+        #       c.advance(start)
+        #       for v in p1[j + 1 :]:
+        #           c.advance(v)
+        #       self._pos_id += 1
 
-#       self._answer[var_id] = [c.vertex(), flip_id, c.direction, self._pos_id]
+        #       self._answer[var_id] = [c.vertex(), flip_id, c.direction, self._pos_id]
 
         return splice
 
@@ -207,12 +208,12 @@ class Solver:
             if all(a <= 3 for a in p1):
                 # We have found a solution
                 self._num_solutions += 1
-                
 
                 self._surfaces.append(
                     make_surface([[generate_piece(p1, (0, 0), 0), "salmon"]])
                 )
         self._answer[var_id] = None
+
 
 #   def _display_answer(self):
 #       surfaces = []
