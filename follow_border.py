@@ -3,7 +3,7 @@ import colorsys
 import math
 import tqdm
 from dataclasses import dataclass
-from matplotlib import colors
+from typing import List
 
 # Here are the pieces of the puzzle as expressed by the angle at
 # each vertex. An is a value in range(1, 6) expressed in units of 60 degrees.
@@ -24,6 +24,8 @@ COLORS = [
     colorsys.hls_to_rgb(hue / 360.0, 0.5, 0.7) for hue in [0, 60, 150, 270]
 ]
 
+SALMON = (250.0 / 255, 128.0 / 255, 114.0 / 255)
+
 
 @dataclass(slots=True)
 class Cursor:
@@ -35,10 +37,10 @@ class Cursor:
     # x, y, and direction specify the position and rotation of
     # the figure whose vertices are computed.
     # (x, y) should be the coordinates desired for the first vertex.
-    #  direction should be the direction the edge enters the first vertex.
     x: int
     y: int
 
+    # direction should be the direction the edge enters the first vertex.
     # A direction is an integer in range(6), specifying an angle at 60
     # degree intervals. Zero means horizontally to the right. Increasing
     #  the value by 1 rotates the direction 60 degrees clockwise.
@@ -112,21 +114,29 @@ def write_surfaces(name, surfaces):
     surface.write_to_png(name)
 
 
+@dataclass(slots=True)
+class StackFrame:
+    border: List[int]
+    position: List[int]  # x, y, direction
+
+
 class Solver:
     def __init__(self):
-        # An answer consists of a an [(x, y), flip, direction] for
+        self._progress = tqdm.tqdm(unit=" candidates")
+        self._stack = [StackFrame(PIECE0, [0, 0, 0])]
+        self._solutions = set()
+
+        # An answer consists of an [flip, x, y, direction] for
         # each of the three pieces.
         self._answer = 3 * [None]
-        self._progress = tqdm.tqdm(unit=" candidates")
-        self._surfaces = []
-        self._pos_id = 0
-        self._num_solutions = 0
 
-    def _try_connect(self, p0, i, var_id, flip_id, j):
+    def _try_connect(self, i, var_id, flip_id, j) -> bool:
+        p0 = self._stack[-1].border
+
         p1 = VARIATIONS[var_id][flip_id]
         start = p0[i] + p1[j]
         if start >= 6:
-            return None
+            return False
         ii = i
         jj = j
         while True:
@@ -134,7 +144,7 @@ class Solver:
             jj = (jj - 1) % len(p1)
             finish = p0[ii] + p1[jj]
             if finish > 6:
-                return None
+                return False
             elif finish == 6:
                 continue
             else:
@@ -149,87 +159,92 @@ class Solver:
 
         # Test if the border crosses itself.
         # This means there is an overlap or hole.
-        c = Cursor(0, 0, 0)
+        c = Cursor(*self._stack[-1].position)
+        for v in p0[: ii + 1]:
+            c.advance(v)
+
+        # qqq = Cursor(0, 0, 0)
         if len(set(c.advance(a) for a in splice)) != len(splice):
-            return None
+            return False
 
-        #       # Determine the position of p1
-        #       c = Cursor(0, 0, 0)
-        #       for v in p0[0:i]:
-        #           c.advance(v)
-        #       c.advance(start)
-        #       for v in p1[j + 1 :]:
-        #           c.advance(v)
-        #       self._pos_id += 1
+        # Determine the position of the newly placed piece.
+        d = Cursor(*self._stack[-1].position)
+        for v in p0[:i]:
+            d.advance(v)
+        d.advance(start)
+        for v in p1[j + 1 :]:
+            d.advance(v)
 
-        #       self._answer[var_id] = [c.vertex(), flip_id, c.direction, self._pos_id]
+        self._answer[var_id] = [flip_id, d.x, d.y, d.direction]
+        self._stack.append(StackFrame(splice, [c.x, c.y, c.direction]))
+        return True
 
-        return splice
-
-    def _connect_all(self, p0, var_id):
+    def _connect_all(self, var_id):
         # p0 is an aggregate piece, expressed as a list of angles.
         # var_id is the index one of the VARIATIONS
         # Generate all legal ways of connecting the two pieces.
         var = VARIATIONS[var_id]
         for flip_id in range(len(var)):
-            for i in range(len(p0)):
+            for i in range(len(self._stack[-1].border)):
                 for j in range(len(var[flip_id])):
-                    t = self._try_connect(p0, i, var_id, flip_id, j)
-                    if t:
-                        yield t
+                    if self._try_connect(i, var_id, flip_id, j):
+                        yield None
 
     def solve(self):
         # Try connecting each of the three variations with PIECE0,
         # deferring the other two variations to _level_two.
-        self._level_one(PIECE0, 0, 1, 2)
-        self._level_one(PIECE0, 1, 0, 2)
-        self._level_one(PIECE0, 2, 0, 1)
+        self._level_one(0, 1, 2)
+        self._level_one(1, 0, 2)
+        self._level_one(2, 0, 1)
         self._progress.close()
-        print(f"Found {self._num_solutions} solutions")
-        # self._display_answer()
-        write_surfaces("outlines.png", self._surfaces)
+        num_solutions = len(self._solutions)
+        match num_solutions:
+            case 0:
+                print ("Found no solutions")
+            case 1:
+                print ("Found a single solution")
+                self._display_answer()
+            case _:
+                print (f"Found {num_solutions} solutions")
+                self._display_answer()
 
-    def _level_one(self, p0, var_id, x0, x1):
-        for p1 in self._connect_all(p0, var_id):
-            self._level_two(p1, x0, x1)
-            self._level_two(p1, x1, x0)
-        self._answer[var_id] = None
+    def _level_one(self, var_id, x0, x1):
+        for _ in self._connect_all(var_id):
+            self._level_two(x0, x1)
+            self._level_two(x1, x0)
+            self._stack.pop()
 
-    def _level_two(self, p0, var_id, x0):
-        for p1 in self._connect_all(p0, var_id):
-            self._level_three(p1, x0)
-        self._answer[var_id] = None
+    def _level_two(self, var_id, x0):
+        for p1 in self._connect_all(var_id):
+            self._level_three(x0)
+            self._stack.pop()
 
-    def _level_three(self, p0, var_id):
-        for p1 in self._connect_all(p0, var_id):
+    def _level_three(self, var_id):
+        for _ in self._connect_all(var_id):
+            border = self._stack[-1].border
             self._progress.update(1)
-            # p1 is the boundary of a way of connecting
-            # all four pieces.  Test if p1 is convex
-            if all(a <= 3 for a in p1):
+            # border surronds the connection of all four puzzle pieces.
+            # all four pieces.  Test if border is convex
+            if all(a <= 3 for a in border):
                 # We have found a solution
-                self._num_solutions += 1
+                self._solutions.add(tuple(tuple(x) for x in self._answer))
 
-                self._surfaces.append(
-                    make_surface([[generate_piece(p1, (0, 0), 0), "salmon"]])
+            self._stack.pop()
+
+    def _display_answer(self):
+        surfaces = []
+        for solution in self._solutions:
+            result = [[generate_piece(PIECE0, 0, 0, 0), COLORS[0]]]
+            for i, a in enumerate(solution):
+                flip_id, x, y, direction = a
+                result.append(
+                    [
+                        generate_piece(VARIATIONS[i][flip_id], x, y, direction),
+                        COLORS[i + 1],
+                    ]
                 )
-        self._answer[var_id] = None
-
-
-#   def _display_answer(self):
-#       surfaces = []
-#       for solution in self._solutions:
-#           result = [[generate_piece(PIECE0, (0, 0), 0), COLORS[0]]]
-#           for i, a in enumerate(solution):
-#               xy, flip_id, direction, debug_id = a
-#               print(xy, flip_id, direction, debug_id)
-#               result.append(
-#                   [
-#                       generate_piece(VARIATIONS[i][flip_id], xy, direction),
-#                       COLORS[i + 1],
-#                   ]
-#               )
-#           surfaces.append(make_surface(result))
-#       write_surfaces("answer.png", surfaces)
+            surfaces.append(make_surface(result))
+        write_surfaces("answer.png", surfaces)
 
 
 def triscale(x, y):
@@ -313,7 +328,7 @@ def make_surface(pieces):
                     ctx.stroke()
 
                 case 0:
-                    ctx.set_source_rgb(*colors.to_rgb(color))
+                    ctx.set_source_rgb(*color)
                     ctx.fill()
 
     # Get the bounds of the recorded image.
@@ -330,8 +345,8 @@ def make_surface(pieces):
     return surface
 
 
-def generate_piece(vertices, start, direction):
-    c = Cursor(*start, direction)
+def generate_piece(vertices, x, y, direction):
+    c = Cursor(x, y, direction)
     return [c.advance(a) for a in vertices]
 
 
@@ -355,7 +370,7 @@ def make_drawing(name, points):
                 ctx.stroke()
 
             case 0:
-                ctx.set_source_rgb(*colors.to_rgb("salmon"))
+                ctx.set_source_rgb(*SALMON)
                 ctx.fill()
 
     # Get the bounds of the recorded image.
