@@ -3,10 +3,9 @@ import colorsys
 import math
 import tqdm
 from dataclasses import dataclass
-from typing import List
 
-# Here are the pieces of the puzzle as expressed by the angle at
-# each vertex. An is a value in range(1, 6) expressed in units of 60 degrees.
+# Here are the pieces of the puzzle as expressed by the angle at each vertex.
+# An angle is a value in range(1, 6) expressed in units of 60 degrees.
 PIECE0 = [2, 1, 5, 1, 3, 1, 3, 2]
 
 # For all but the first piece, we reverse each list to represent flipping the
@@ -23,8 +22,6 @@ VARIATIONS = [
 COLORS = [
     colorsys.hls_to_rgb(hue / 360.0, 0.5, 0.7) for hue in [0, 60, 150, 270]
 ]
-
-SALMON = (250.0 / 255, 128.0 / 255, 114.0 / 255)
 
 
 @dataclass(slots=True)
@@ -71,21 +68,17 @@ class Cursor:
 Cursor.WHEEL = [(2, 0), (1, 1), (-1, 1), (-2, 0), (-1, -1), (1, -1)]
 
 
-# The height of an equilateral triangle with base 1.
-ROOT3H = 0.5 * math.sqrt(3)
-
-
-def show_piece(p0):
-    c = Cursor(0, 0, 0)
-    for v in p0:
-        print(*cursor.advance(v))
+@dataclass(slots=True)
+class StackFrame:
+    border: list[int]
+    position: list[int]  # x, y, direction
 
 
 def circular_slice(data, start, end):
     """Return the slice starting at start and ending at end, returning
-    neither endpoint. However, the buffer is considered to be circular.
+    neither endpoint. The data buffer is considered to be circular.
     if end has wrapped around, assemble the two pieces to implement
-    wrapping.
+    the wrapping.
     """
 
     # Circular buffers have a classic problem that completely empty and
@@ -98,26 +91,37 @@ def circular_slice(data, start, end):
     )
 
 
-def write_surfaces(name, surfaces):
-    border = 20
-    agg_width = max(s.get_width() for s in surfaces) + 2 * border
-    agg_height = sum(s.get_height() for s in surfaces) + border * (
-        len(surfaces) + 1
-    )
-    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, agg_width, agg_height)
-    ctx = cairo.Context(surface)
-    y_val = border
-    for s in surfaces:
-        ctx.set_source_surface(s, border, y_val)
-        ctx.paint()
-        y_val += s.get_height() + border
-    surface.write_to_png(name)
-
-
-@dataclass(slots=True)
-class StackFrame:
-    border: List[int]
-    position: List[int]  # x, y, direction
+def valley_to_valley(piece):
+    """Here is a filter that enormously speeds up the search.
+    When the final piece is placed, for the solution to be
+    correct, it must fill in all remaining valleys. Since
+    we are blindly assembling pieces with no guiding intelligence,
+    the valleys tend to get equally spread out along the border.
+    This function traverses a border and finds the smallest section
+    that touches every valley. If that value is larger than the
+    circumference of the final piece, there is no point in trying
+    every way the piece can be attached.
+    """
+    prev_valley = None
+    first_valley = None
+    max_delta = -math.inf
+    i = 0
+    while True:
+        if 4 <= piece[i] <= 5:
+            # is a valley
+            if prev_valley is not None:
+                delta = i - prev_valley
+                if delta <= 0:
+                    delta += len(piece)
+                if delta > max_delta:
+                    max_delta = delta
+            if first_valley is None:
+                first_valley = i
+            elif i == first_valley:
+                # We have measured every valley
+                return len(piece) - max_delta
+            prev_valley = i
+        i = (i + 1) % len(piece)
 
 
 class Solver:
@@ -125,13 +129,23 @@ class Solver:
         self._progress = tqdm.tqdm(unit=" candidates")
         self._stack = [StackFrame(PIECE0, [0, 0, 0])]
         self._solutions = set()
+        self._duplicate_solutions = 0
 
         # An answer consists of an [flip, x, y, direction] for
         # each of the three pieces.
         self._answer = 3 * [None]
 
+        self._filtered = 0
+
+    def _border(self):
+        """Return the border on top of the stack"""
+        return self._stack[-1].border
+
+    def _cursor(self):
+        return Cursor(*self._stack[-1].position)
+
     def _try_connect(self, i, var_id, flip_id, j) -> bool:
-        p0 = self._stack[-1].border
+        p0 = self._border()
 
         p1 = VARIATIONS[var_id][flip_id]
         start = p0[i] + p1[j]
@@ -159,16 +173,14 @@ class Solver:
 
         # Test if the border crosses itself.
         # This means there is an overlap or hole.
-        c = Cursor(*self._stack[-1].position)
+        c = self._cursor()
         for v in p0[: ii + 1]:
             c.advance(v)
-
-        # qqq = Cursor(0, 0, 0)
         if len(set(c.advance(a) for a in splice)) != len(splice):
             return False
 
         # Determine the position of the newly placed piece.
-        d = Cursor(*self._stack[-1].position)
+        d = self._cursor()
         for v in p0[:i]:
             d.advance(v)
         d.advance(start)
@@ -185,7 +197,7 @@ class Solver:
         # Generate all legal ways of connecting the two pieces.
         var = VARIATIONS[var_id]
         for flip_id in range(len(var)):
-            for i in range(len(self._stack[-1].border)):
+            for i in range(len(self._border())):
                 for j in range(len(var[flip_id])):
                     if self._try_connect(i, var_id, flip_id, j):
                         yield None
@@ -198,15 +210,17 @@ class Solver:
         self._level_one(2, 0, 1)
         self._progress.close()
         num_solutions = len(self._solutions)
+        print(f"{self._filtered} candidates were filtered")
         match num_solutions:
             case 0:
-                print ("Found no solutions")
+                print("Found no solutions")
             case 1:
-                print ("Found a single solution")
+                print("Found a single solution")
                 self._display_answer()
             case _:
-                print (f"Found {num_solutions} solutions")
+                print(f"Found {num_solutions} solutions")
                 self._display_answer()
+        print(f"There are {self._duplicate_solutions-1} duplicates")
 
     def _level_one(self, var_id, x0, x1):
         for _ in self._connect_all(var_id):
@@ -220,18 +234,25 @@ class Solver:
             self._stack.pop()
 
     def _level_three(self, var_id):
+        if valley_to_valley(self._border()) > len(VARIATIONS[var_id][0]):
+            self._filtered += 1
+            return
         for _ in self._connect_all(var_id):
-            border = self._stack[-1].border
             self._progress.update(1)
-            # border surronds the connection of all four puzzle pieces.
-            # all four pieces.  Test if border is convex
-            if all(a <= 3 for a in border):
+            # self._border() surronds the connection of all four puzzle pieces.
+            # Test if the border is convex
+            if all(a <= 3 for a in self._border()):
                 # We have found a solution
                 self._solutions.add(tuple(tuple(x) for x in self._answer))
+                self._duplicate_solutions += 1
 
             self._stack.pop()
 
     def _display_answer(self):
+        def generate_piece(vertices, x, y, direction):
+            c = Cursor(x, y, direction)
+            return [c.advance(a) for a in vertices]
+
         surfaces = []
         for solution in self._solutions:
             result = [[generate_piece(PIECE0, 0, 0, 0), COLORS[0]]]
@@ -247,64 +268,8 @@ class Solver:
         write_surfaces("answer.png", surfaces)
 
 
-def triscale(x, y):
-    return [0.5 * x, ROOT3H * y]
-
-
-def draw_pieces(name, pieces):
-    # Use a recording surface to avoid having to calculate the bounds
-    # of the image.  The background will be transparent.
-    recording = cairo.RecordingSurface(cairo.FORMAT_ARGB32, None)
-    ctx = cairo.Context(recording)
-    ctx.scale(100, -100)
-
-    for points, color in pieces:
-        for i in range(2):
-            ctx.move_to(*triscale(*points[0]))
-            for v in points[1:]:
-                ctx.line_to(*triscale(*v))
-            ctx.close_path()
-
-            match i:
-                case 1:
-                    ctx.set_line_width(0.025)
-                    ctx.set_source_rgb(0, 0, 0)  # black
-                    ctx.stroke()
-
-                case 0:
-                    ctx.set_source_rgb(*colors.to_rgb(color))
-                    ctx.fill()
-
-    # Get the bounds of the recorded image.
-    x, y, width, height = recording.ink_extents()
-    width = math.ceil(width)
-    height = math.ceil(height)
-
-    # Replay the created image into a real surface of the appropriate size.
-    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
-    ctx = cairo.Context(surface)
-    ctx.set_source_surface(recording, -x, -y)
-    ctx.paint()
-
-    border = 10
-    width += border
-    height += border
-
-    # Create slightly larger surface.
-    larger = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
-    ctx = cairo.Context(larger)
-
-    # Fill the new surface with white.
-    ctx.rectangle(0, 0, width, height)
-    ctx.set_source_rgb(1, 1, 1)
-    ctx.fill()
-
-    # Paint the replayed image over the white image. This works because of
-    # the transparent backgrounds in recording and surface.
-    ctx.set_source_surface(surface, border / 2, border / 2)
-    ctx.paint()
-
-    larger.write_to_png(name)
+# The height of an equilateral triangle with base 1.
+ROOT3H = 0.5 * math.sqrt(3)
 
 
 def make_surface(pieces):
@@ -313,6 +278,8 @@ def make_surface(pieces):
     recording = cairo.RecordingSurface(cairo.FORMAT_ARGB32, None)
     ctx = cairo.Context(recording)
     ctx.scale(100, -100)
+
+    triscale = lambda x, y: [0.5 * x, ROOT3H * y]
 
     for points, color in pieces:
         for i in range(2):
@@ -345,65 +312,23 @@ def make_surface(pieces):
     return surface
 
 
-def generate_piece(vertices, x, y, direction):
-    c = Cursor(x, y, direction)
-    return [c.advance(a) for a in vertices]
-
-
-def make_drawing(name, points):
-    # Use a recording surface to avoid having to calculate the bounds
-    # of the image.  The background will be transparent.
-    recording = cairo.RecordingSurface(cairo.FORMAT_ARGB32, None)
-    ctx = cairo.Context(recording)
-    ctx.scale(100, -100)
-
-    for i in range(2):
-        ctx.move_to(*triscale(*points[0]))
-        for v in points[1:]:
-            ctx.line_to(*triscale(*v))
-        ctx.close_path()
-
-        match i:
-            case 1:
-                ctx.set_line_width(0.025)
-                ctx.set_source_rgb(0, 0, 0)  # black
-                ctx.stroke()
-
-            case 0:
-                ctx.set_source_rgb(*SALMON)
-                ctx.fill()
-
-    # Get the bounds of the recorded image.
-    x, y, width, height = recording.ink_extents()
-    width = math.ceil(width)
-    height = math.ceil(height)
-
-    # Replay the created image into a real surface of the appropriate size.
-    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
+def write_surfaces(name, surfaces):
+    border = 20
+    agg_width = max(s.get_width() for s in surfaces) + 2 * border
+    agg_height = sum(s.get_height() for s in surfaces) + border * (
+        len(surfaces) + 1
+    )
+    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, agg_width, agg_height)
     ctx = cairo.Context(surface)
-    ctx.set_source_surface(recording, -x, -y)
-    ctx.paint()
-
-    border = 10
-    width += border
-    height += border
-
-    # Create slightly larger surface.
-    larger = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
-    ctx = cairo.Context(larger)
-
-    # Fill the new surface with white.
-    ctx.rectangle(0, 0, width, height)
-    ctx.set_source_rgb(1, 1, 1)
-    ctx.fill()
-
-    # Paint the replayed image over the white image. This works because of
-    # the transparent backgrounds in recording and surface.
-    ctx.set_source_surface(surface, border / 2, border / 2)
-    ctx.paint()
-
-    larger.write_to_png(name)
+    y_val = border
+    for s in surfaces:
+        ctx.set_source_surface(s, border, y_val)
+        ctx.paint()
+        y_val += s.get_height() + border
+    surface.write_to_png(name)
 
 
 if __name__ == "__main__":
+    #   import cProfile
+    #   cProfile.run("Solver().solve()")
     Solver().solve()
