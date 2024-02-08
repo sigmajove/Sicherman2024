@@ -141,7 +141,7 @@ class Solver:
     def _try_connect(self, i, var_id, flip_id, j):
         """Test if is possible to connect the piece at
         VARIATIONS[var_id][flip_id] with the border on top of the stack
-        at position (i, j). If it is possible, pushs the combined border
+        at position (i, j). If it is possible, pushes the combined border
         onto the stack and return True. If not, return False.
         """
         p0 = self._border()
