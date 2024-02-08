@@ -7,7 +7,7 @@ def direction_0(piece):
     c = main.Cursor(3, 27, 0)
     for angle in piece:
         c.advance(angle)
-        vertices.append(c.vertex())
+        vertices.append((c.x, c.y))
 
     # Check position and direction
     assert vertices[-1] == (3, 27)
@@ -21,7 +21,7 @@ def direction_1(piece):
     c = main.Cursor(16, 9, 1)
     for angle in piece:
         c.advance(angle)
-        vertices.append(c.vertex())
+        vertices.append((c.x, c.y))
 
     # Check position and direction
     assert vertices[-1] == (16, 9)

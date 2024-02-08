@@ -1,7 +1,7 @@
 import cairo
 import colorsys
 import math
-import tqdm
+import time
 from dataclasses import dataclass
 
 # Here are the pieces of the puzzle as expressed by the angle at each vertex.
@@ -26,69 +26,41 @@ COLORS = [
 
 @dataclass(slots=True)
 class Cursor:
-    """A class that can be used to find the vertices of a polygon
-    specified by the angle at each vertex.
-
+    """A class that can be used to iterate over vertices of a polygon
+    specified by an angle list.
     """
 
-    # x, y, and direction specify the position and rotation of
-    # the figure whose vertices are computed.
-    # (x, y) should be the coordinates desired for the first vertex.
+    # The (x, y) coordinates of the current vertex.
     x: int
     y: int
 
-    # direction should be the direction the edge enters the first vertex.
+    # The direction the incoming edge when it enters (x y).
     # A direction is an integer in range(6), specifying an angle at 60
     # degree intervals. Zero means horizontally to the right. Increasing
     #  the value by 1 rotates the direction 60 degrees clockwise.
     direction: int
 
     def advance(self, angle):
-        """advance should be called for each vertex of the figure,
-        passing in the angle of that vertex. Angle should be in range(1, 6),
-        with a unit of 60 degrees.
-        Between calls, (x, y) are the coordinates of a vertex. After n calls,
-        x, y, and direction will have the values originally passed to
-        the constructor.
+        """Advances to the next vertex counterclockwise around
+        the border of the polygon.  The value of angle must be
+        the angle of the current vertex, with a unit of 60 degrees.
         """
 
-        new_direction = (self.direction + 3 - angle) % len(Cursor.WHEEL)
-        dx, dy = Cursor.WHEEL[new_direction]
+        self.direction = (self.direction + 3 - angle) % 6
+        dx, dy = WHEEL[self.direction]
         self.x += dx
         self.y += dy
-        self.direction = new_direction
-        return self.vertex()
-
-    def vertex(self):
-        return (self.x, self.y)
 
 
 # WHEEL[direction] is the coordinates of the point adjacent to (0, 0)
-# in the given direction.
-Cursor.WHEEL = [(2, 0), (1, 1), (-1, 1), (-2, 0), (-1, -1), (1, -1)]
+# in the given direction.  Like the spokes of a wheel.
+WHEEL = [(2, 0), (1, 1), (-1, 1), (-2, 0), (-1, -1), (1, -1)]
 
 
 @dataclass(slots=True)
 class StackFrame:
     border: list[int]
-    position: list[int]  # x, y, direction
-
-
-def circular_slice(data, start, end):
-    """Return the slice starting at start and ending at end, returning
-    neither endpoint. The data buffer is considered to be circular.
-    if end has wrapped around, assemble the two pieces to implement
-    the wrapping.
-    """
-
-    # Circular buffers have a classic problem that completely empty and
-    # completely full are not distinguishable. In this case, we assume
-    # the buffer is never completely full.
-    return (
-        data[start + 1 : end]
-        if start <= end
-        else data[start + 1 :] + data[:end]
-    )
+    position: list[int]
 
 
 def valley_to_valley(piece):
@@ -124,12 +96,29 @@ def valley_to_valley(piece):
         i = (i + 1) % len(piece)
 
 
+def circular_slice(data, start, end):
+    """Return the slice starting at start and ending at end, returning
+    neither endpoint. The data buffer is considered to be circular.
+    if end has wrapped around, assemble the two pieces to implement
+    the wrapping.
+    """
+
+    # Circular buffers have a classic problem that completely empty and
+    # completely full are not distinguishable. In this case, we assume
+    # the buffer is never completely full.
+    return (
+        data[start + 1 : end]
+        if start <= end
+        else data[start + 1 :] + data[:end]
+    )
+
+
 class Solver:
     def __init__(self):
-        self._progress = tqdm.tqdm(unit=" candidates")
         self._stack = [StackFrame(PIECE0, [0, 0, 0])]
         self._solutions = set()
         self._duplicate_solutions = 0
+        self._candidates_tested = 0
 
         # An answer consists of an [flip, x, y, direction] for
         # each of the three pieces.
@@ -164,21 +153,42 @@ class Solver:
             else:
                 break
 
-        splice = (
-            circular_slice(p0, ii, i)
-            + [start]
-            + circular_slice(p1, j, jj)
-            + [finish]
-        )
+        # Compute p0[ii + 1 : j] + [start] + p1[j + 1 : jj] + [finish]
+        # implementing wraparound in p0 and p1.
+        if ii <= i:
+            splice = p0[ii + 1 : i]
+        else:
+            splice = p0[ii + 1 :]
+            splice += p0[:i]
+        splice.append(start)
+        if j <= jj:
+            splice += p1[j + 1 : jj]
+        else:
+            splice += p1[j + 1 :]
+            splice += p1[:jj]
+        splice.append(finish)
+
+
+#       splice = (
+#           circular_slice(p0, ii, i)
+#           + [start]
+#           + circular_slice(p1, j, jj)
+#           + [finish]
+#       )
 
         # Test if the border crosses itself.
         # This means there is an overlap or hole.
         c = self._cursor()
         for v in p0[: ii + 1]:
             c.advance(v)
-        if len(set(c.advance(a) for a in splice)) != len(splice):
+        vertices = set()
+        for a in splice:
+            c.advance(a)
+            vertices.add((c.x, c.y))
+        if len(vertices) != len(splice):
             return False
 
+        
         # Determine the position of the newly placed piece.
         d = self._cursor()
         for v in p0[:i]:
@@ -203,14 +213,18 @@ class Solver:
                         yield None
 
     def solve(self):
+        start_time = time.perf_counter_ns()
         # Try connecting each of the three variations with PIECE0,
         # deferring the other two variations to _level_two.
         self._level_one(0, 1, 2)
         self._level_one(1, 0, 2)
         self._level_one(2, 0, 1)
-        self._progress.close()
+        stop_time = time.perf_counter_ns()
+        print(f"Time {(stop_time-start_time)*1.0e-9:.3f} seconds")
+
         num_solutions = len(self._solutions)
-        print(f"{self._filtered} candidates were filtered")
+        print(f"{self._filtered:,} candidates were filtered")
+        print(f"{self._candidates_tested:,} candidates were tested")
         match num_solutions:
             case 0:
                 print("Found no solutions")
@@ -238,9 +252,9 @@ class Solver:
             self._filtered += 1
             return
         for _ in self._connect_all(var_id):
-            self._progress.update(1)
             # self._border() surronds the connection of all four puzzle pieces.
             # Test if the border is convex
+            self._candidates_tested += 1
             if all(a <= 3 for a in self._border()):
                 # We have found a solution
                 self._solutions.add(tuple(tuple(x) for x in self._answer))
@@ -251,7 +265,11 @@ class Solver:
     def _display_answer(self):
         def generate_piece(vertices, x, y, direction):
             c = Cursor(x, y, direction)
-            return [c.advance(a) for a in vertices]
+            result = []
+            for a in vertices:
+                c.advance(a)
+                result.append([c.x, c.y])
+            return result
 
         surfaces = []
         for solution in self._solutions:
@@ -328,7 +346,35 @@ def write_surfaces(name, surfaces):
     surface.write_to_png(name)
 
 
+def time_glue():
+    p0 = [i for i in range(20)]
+    p1 = [10 * i for i in range(20)]
+
+    ii = 15
+    i = 10
+    j = 14
+    jj = 20
+    start = 100
+    finish = 200
+
+    for _ in range(2):
+        #       splice = (
+        #           circular_slice(p0, ii, i)
+        #           + [start]
+        #           + circular_slice(p1, j, jj)
+        #           + [finish]
+        #       )
+
+        i, ii = ii, i
+        j, jj = jj, j
+
+
 if __name__ == "__main__":
-    #   import cProfile
-    #   cProfile.run("Solver().solve()")
+    #    import timeit
+
+    #    print(timeit.timeit("time_glue()", setup="from __main__ import time_glue"))
+    # time_glue()
+
+    #  import cProfile
+    #  cProfile.run("Solver().solve()")
     Solver().solve()
