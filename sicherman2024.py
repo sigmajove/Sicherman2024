@@ -227,7 +227,7 @@ class PieceScanner:
         Return None if the piece has a hole.
         """
         if self._early_exit:
-            # There is a loop.
+            # There is a hole.
             return None
         if not self._border_map:
             return 0
