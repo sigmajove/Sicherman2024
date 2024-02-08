@@ -56,7 +56,7 @@ class Cursor:
         # abstraction we otherwise might.
 
         # Adding three to incoming angle reverses it.
-        # Then subtracting the aangle of this vertex points us at the next one.
+        # Then subtracting the angle of this vertex points us at the next one.
         self.direction = (self.direction + 3 - angle) % 6
 
         # Move one step in the new direction.
