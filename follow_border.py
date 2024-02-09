@@ -107,9 +107,11 @@ def valley_to_valley(piece):
 class StackFrame:
     """The type of Solver._stack[i]"""
 
-    border: list[int]    # The border of the the assembled pieces,
-                         # expressed as a list of angles.
-    position: list[int]  # The position [x, y, direction] of border.
+    # The border of the the assembled pieces, expressed as a list of angles.
+    border: list[int]
+
+    # The position [x, y, direction] of border.
+    position: list[int]
 
 
 class Solver:
