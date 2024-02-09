@@ -8,27 +8,6 @@ import time
 from dataclasses import dataclass
 import cairo
 
-# Here are the pieces of the puzzle as expressed by the angle at each vertex.
-# An angle is a value in range(1, 6) expressed in units of 60 degrees.
-PIECE0 = [2, 1, 5, 1, 3, 1, 3, 2]
-
-# For all but the first piece, we reverse each list to represent flipping the
-# piece.
-VARIATIONS = [
-    [p, list(reversed(p))]
-    for p in [
-        [1, 3, 2, 1, 4, 2, 1, 4],
-        [2, 1, 4, 1, 3, 1, 3],
-        [2, 2, 1, 5, 2, 1, 3, 2],
-    ]
-]
-
-# The colors that are used to distinguish the different pieces in the
-# output file.
-COLORS = [
-    colorsys.hls_to_rgb(hue / 360.0, 0.5, 0.7) for hue in [0, 60, 150, 270]
-]
-
 
 @dataclass(slots=True)
 class Cursor:
@@ -117,9 +96,18 @@ class StackFrame:
 class Solver:
     """Solves George Sicherman's 2024 New Year Puzzle."""
 
-    def __init__(self):
+    def __init__(self, piece0, variations):
+        # Each piece of the puzzle are described as the list of angles
+        # at each vertex of the polygon. An angle is a value in range(1, 6)
+        # expressed in units of 60 degrees.
+        # For all but the first piece, we have a list of list of variations
+        # to allow for fliping a piece.
+
+        # The subsequent pieces have variations to allow for flipping the piece.
+        self._variations = variations
+
         # We implement the search tree using a stack.
-        self._stack = [StackFrame(PIECE0, [0, 0, 0])]
+        self._stack = [StackFrame(piece0, [0, 0, 0])]
 
         # An answer consists of an [flip, x, y, direction] for
         # each of the three pieces.
@@ -142,12 +130,12 @@ class Solver:
 
     def _try_connect(self, i, var_id, flip_id, j):
         """Test if is possible to connect the piece at
-        VARIATIONS[var_id][flip_id] with the border on top of the stack
-        at position (i, j). If it is possible, pushes the combined border
-        onto the stack and return True. If not, return False.
+        self._variations[var_id][flip_id] with the border on top of the
+        stack at position (i, j). If it is possible, pushes the combined
+        border onto the stack and return True. If not, return False.
         """
         p0 = self._border()
-        p1 = VARIATIONS[var_id][flip_id]
+        p1 = self._variations[var_id][flip_id]
 
         start = p0[i] + p1[j]
         if start >= 6:
@@ -222,15 +210,16 @@ class Solver:
         return True
 
     def _connect_all(self, var_id):
-        """var_id is the index one of the pieces in VARIATIONS.  Generate all
-        legal ways of attaching this piece to the aggregate on top of the stack.
+        """var_id is the index one of the pieces in self._variations.
+        Generate all legal ways of attaching this piece to the aggregate
+        on top of the stack.
 
         This function has a peculiar interface. It is a generator that returns
         a series on None values. Each time we yield a value, we also push
         the new combination on the stack. It is the responsibility of the
         caller to pop this value when they are done with it.
         """
-        var = VARIATIONS[var_id]
+        var = self._variations[var_id]
         for flip_id in range(len(var)):
             for i in range(len(self._border())):
                 for j in range(len(var[flip_id])):
@@ -238,33 +227,34 @@ class Solver:
                         yield None
 
     def solve(self):
-        """Solve the puzzle."""
+        """Solve the puzzle returing:
+        [number of non-unique soltions,
+         set of unique solutions,
+         running time in nanoseconds
+        ]
+        """
         start_time = time.perf_counter_ns()
 
-        # Try connecting each of the three variations with PIECE0,
+        # Try connecting each of the three variations with piece0.
         # deferring the other two variations to _level_two.
         self._level_one(0, 1, 2)
         self._level_one(1, 0, 2)
         self._level_one(2, 0, 1)
-        stop_time = time.perf_counter_ns()
-        print(f"Time {(stop_time-start_time)*1.0e-9:.3f} seconds")
-        print(f"{self._candidates_tested:,} candidates were tested")
 
-        num_solutions = len(self._solutions)
-        if num_solutions == 0:
-            print("Found no solutions")
-        elif num_solutions == 1:
-            print("Found a single solution")
-            self._display_answer()
-        else:
-            print(f"Found {num_solutions} solutions")
-            self._display_answer()
-        if self._duplicate_solutions > 1:
-            print(f"There are {self._duplicate_solutions-1} duplicates")
+        elapsed_time = time.perf_counter_ns() - start_time
+
+        return [
+            self._duplicate_solutions,
+            self._solutions,
+            self._candidates_tested,
+            elapsed_time,
+        ]
 
     def _level_one(self, var_id, x0, x1):
-        """Examine all ways of attaching the piece specified by var_id to
-        PIECE0"""
+        """Examine all ways of attaching the piece specified by var_id
+        to piece0.
+        """
+
         for _ in self._connect_all(var_id):
             self._level_two(x0, x1)
             self._level_two(x1, x0)
@@ -282,7 +272,7 @@ class Solver:
         """Examine all ways of attaching the piece specified by var_id
         as the final piece placed.
         """
-        if valley_to_valley(self._border()) > len(VARIATIONS[var_id][0]):
+        if valley_to_valley(self._border()) > len(self._variations[var_id][0]):
             # A very effective optimization.
             return
 
@@ -296,30 +286,60 @@ class Solver:
                 self._duplicate_solutions += 1
             self._stack.pop()
 
-    def _display_answer(self):
-        """Write out the answer in the file answer.png."""
 
-        def generate_piece(vertices, x, y, direction):
-            c = Cursor(x, y, direction)
-            result = []
-            for a in vertices:
-                c.advance(a)
-                result.append([c.x, c.y])
-            return result
+def solve_puzzle(pieces):
+    variations = [[p, list(reversed(p))] for p in pieces[1:]]
+    duplicates, solutions, tested, elapsed_time = Solver(
+        pieces[0], variations
+    ).solve()
 
-        surfaces = []
-        for solution in self._solutions:
-            result = [[generate_piece(PIECE0, 0, 0, 0), COLORS[0]]]
-            for i, a in enumerate(solution):
-                flip_id, x, y, direction = a
-                result.append(
-                    [
-                        generate_piece(VARIATIONS[i][flip_id], x, y, direction),
-                        COLORS[i + 1],
-                    ]
-                )
-            surfaces.append(make_surface(result))
-        write_surfaces("answer.png", surfaces)
+    print(f"Time {elapsed_time*1.0e-9:.3f} seconds")
+    print(f"{tested:,} candidates were tested")
+
+    num_solutions = len(solutions)
+    if num_solutions == 0:
+        print("Found no solutions")
+    elif num_solutions == 1:
+        print("Found a single solution")
+        display_answer(pieces[0], variations, solutions)
+    else:
+        print(f"Found {num_solutions} solutions")
+        display_answer(piece[0], variations, solutions)
+    if duplicates > 1:
+        print(f"There are {duplicates - 1} duplicates")
+
+
+# The colors that are used to distinguish the different pieces in the
+# output file.
+COLORS = [
+    colorsys.hls_to_rgb(hue / 360.0, 0.5, 0.7) for hue in [0, 60, 150, 270]
+]
+
+
+def display_answer(piece0, variations, solutions):
+    """Write out the answer in the file answer.png."""
+
+    def generate_piece(vertices, x, y, direction):
+        c = Cursor(x, y, direction)
+        result = []
+        for a in vertices:
+            c.advance(a)
+            result.append([c.x, c.y])
+        return result
+
+    surfaces = []
+    for solution in solutions:
+        result = [[generate_piece(piece0, 0, 0, 0), COLORS[0]]]
+        for i, a in enumerate(solution):
+            flip_id, x, y, direction = a
+            result.append(
+                [
+                    generate_piece(variations[i][flip_id], x, y, direction),
+                    COLORS[i + 1],
+                ]
+            )
+        surfaces.append(make_surface(result))
+    write_surfaces("answer.png", surfaces)
 
 
 # The height of an equilateral triangle with base 1.
@@ -389,4 +409,11 @@ def write_surfaces(filename, surfaces):
 
 
 if __name__ == "__main__":
-    Solver().solve()
+    solve_puzzle(
+        [
+            [2, 1, 5, 1, 3, 1, 3, 2],
+            [1, 3, 2, 1, 4, 2, 1, 4],
+            [2, 1, 4, 1, 3, 1, 3],
+            [2, 2, 1, 5, 2, 1, 3, 2],
+        ]
+    )
