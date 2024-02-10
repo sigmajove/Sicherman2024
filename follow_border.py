@@ -60,22 +60,24 @@ def valley_to_valley(piece):
     circumference of the final piece, there is no point in trying
     every way that piece can be attached.
     """
-    prev_valley = None
-    first_valley = None
+    # Find a valley
+    one_valley = next((i for i, v in enumerate(piece) if 4 <= v <= 5), None)
+    if one_valley is None:
+        # There is no valley
+        return 0
+
     max_delta = -math.inf
-    i = 0
+    i = (one_valley + 1) % len(piece)
+    prev_valley = one_valley
     while True:
         if 4 <= piece[i] <= 5:
             # vertex i is a valley
-            if prev_valley is not None:
-                delta = i - prev_valley
-                if delta <= 0:
-                    delta += len(piece)
-                if delta > max_delta:
-                    max_delta = delta
-            if first_valley is None:
-                first_valley = i
-            elif i == first_valley:
+            delta = i - prev_valley
+            if delta <= 0:
+                delta += len(piece)
+            if delta > max_delta:
+                max_delta = delta
+            if i == one_valley:
                 # We have measured every valley
                 return len(piece) - max_delta
             prev_valley = i
@@ -110,7 +112,7 @@ class Solver:
         self._stack = [StackFrame(piece0, [0, 0, 0])]
 
         # An answer consists of an [flip, x, y, direction] for
-        # each of the three pieces.
+        # each of the three pieces.  None means the piece is unplaced.
         self._answer = 3 * [None]
 
         # Used to record every solution we find.
@@ -119,6 +121,8 @@ class Solver:
 
         self._duplicate_solutions = 0
         self._candidates_tested = 0
+
+        self._piece0 = piece0
 
     def _border(self):
         """Return the border on top of the stack"""
@@ -259,14 +263,17 @@ class Solver:
             self._level_two(x0, x1)
             self._level_two(x1, x0)
             self._stack.pop()
+            self._answer[var_id] = None
 
     def _level_two(self, var_id, x0):
         """Examine all ways of attaching the piece specified by var_id
         as the second piece placed.
         """
+        surfaces = []
         for _ in self._connect_all(var_id):
             self._level_three(x0)
             self._stack.pop()
+            self._answer[var_id] = None
 
     def _level_three(self, var_id):
         """Examine all ways of attaching the piece specified by var_id
@@ -285,9 +292,47 @@ class Solver:
                 self._solutions.add(tuple(tuple(x) for x in self._answer))
                 self._duplicate_solutions += 1
             self._stack.pop()
+            self._answer[var_id] = None
+
+
+def test_for_overlap(border):
+    # Test if the border crosses itself.
+    # This means there is an overlap or hole.
+    vertices = set()
+    s = Cursor(0, 0, 0)
+    for i, a in enumerate(border):
+        s.advance(a)
+        vertices.add((s.x, s.y))
+        if len(vertices) != i + 1:
+            return True
+    return False
+
+
+def verify_pieces(pieces):
+    """Check the pieces for consistency."""
+    for p in pieces:
+        assert len(p) >= 3
+
+        # The angles must be multiples of 60 degrees
+        assert all(isinstance(a, int) and 1 <= a <= 5 for a in p)
+
+        # Sum of angles for a polygon formula
+        total = sum(p)
+        expected = (len(p) - 2) * 3
+        if total != expected:
+            print("Bad piece", p)
+            print(f"sum = {total}, expected = {expected}")
+            raise RuntimeError
+
+        if test_for_overlap(p):
+            print("Overlapping piece", p)
+            raise RuntimeError
 
 
 def solve_puzzle(pieces):
+    verify_pieces(pieces)
+    write_pieces(pieces)
+
     variations = [[p, list(reversed(p))] for p in pieces[1:]]
     duplicates, solutions, tested, elapsed_time = Solver(
         pieces[0], variations
@@ -304,7 +349,7 @@ def solve_puzzle(pieces):
         display_answer(pieces[0], variations, solutions)
     else:
         print(f"Found {num_solutions} solutions")
-        display_answer(piece[0], variations, solutions)
+        display_answer(pieces[0], variations, solutions)
     if duplicates > 1:
         print(f"There are {duplicates - 1} duplicates")
 
@@ -316,21 +361,21 @@ COLORS = [
 ]
 
 
-def display_answer(piece0, variations, solutions):
-    """Write out the answer in the file answer.png."""
+def generate_piece(angles, x, y, direction):
+    c = Cursor(x, y, direction)
+    result = []
+    for a in angles:
+        c.advance(a)
+        result.append([c.x, c.y])
+    return result
 
-    def generate_piece(vertices, x, y, direction):
-        c = Cursor(x, y, direction)
-        result = []
-        for a in vertices:
-            c.advance(a)
-            result.append([c.x, c.y])
-        return result
 
-    surfaces = []
-    for solution in solutions:
-        result = [[generate_piece(piece0, 0, 0, 0), COLORS[0]]]
-        for i, a in enumerate(solution):
+def write_answer(answer, piece0, variations):
+    """Return a Cairo surface representing a (possibly partial) answer."""
+
+    result = [[generate_piece(piece0, 0, 0, 0), COLORS[0]]]
+    for i, a in enumerate(answer):
+        if a:
             flip_id, x, y, direction = a
             result.append(
                 [
@@ -338,8 +383,30 @@ def display_answer(piece0, variations, solutions):
                     COLORS[i + 1],
                 ]
             )
-        surfaces.append(make_surface(result))
-    write_surfaces("answer.png", surfaces)
+    return make_surface(result)
+
+
+def write_pieces(pieces):
+    write_surfaces(
+        "pieces.png",
+        [
+            make_surface([[generate_piece(p, 0, 0, 0), COLORS[i]]])
+            for i, p in enumerate(pieces)
+        ],
+    )
+
+
+def display_answer(piece0, variations, solutions):
+    """Write out the answer in the file answer.png."""
+
+    write_surfaces(
+        "answer.png",
+        [
+            write_answer(s, piece0, variations)
+            for i, s in enumerate(solutions)
+            if i < 25
+        ],
+    )
 
 
 # The height of an equilateral triangle with base 1.

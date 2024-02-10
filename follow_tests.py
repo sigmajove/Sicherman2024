@@ -31,23 +31,28 @@ def direction_1(piece):
 
 
 def test_direction():
-    direction_0(main.PIECE0)
-    direction_1(main.PIECE0)
-    for p in main.VARIATIONS:
-        for v in p:
-            direction_0(v)
-            direction_1(v)
+    data = [
+        [2, 1, 5, 1, 3, 1, 3, 2],
+        [1, 3, 2, 1, 4, 2, 1, 4],
+        [2, 1, 4, 1, 3, 1, 3],
+        [2, 2, 1, 5, 2, 1, 3, 2],
+    ]
+    for p in data:
+        direction_0(p)
+        direction_1(p)
 
 
 def test_valley_to_valley():
-    # PIECE0 has only one valley
-    assert main.valley_to_valley(main.PIECE0) == 0
-
-    assert (
-        main.valley_to_valley(main.VARIATIONS[0][0])
-        == main.valley_to_valley(main.VARIATIONS[0][1])
-        == 3
-    )
+    assert main.valley_to_valley([]) == 0
+    assert main.valley_to_valley([1, 1, 1, 1, 1]) == 0
+    assert main.valley_to_valley([1, 1, 4, 1, 1]) == 0
+    assert main.valley_to_valley([4, 1, 1, 1, 1]) == 0
+    assert main.valley_to_valley([1, 1, 1, 1, 4]) == 0
+    assert main.valley_to_valley([4]) == 0
+    assert main.valley_to_valley([1, 1, 1, 4, 4, 1, 1, 1]) == 1
+    assert main.valley_to_valley([1, 1, 4, 4, 4, 1, 1, 1]) == 2
+    assert main.valley_to_valley([1, 4, 1, 1, 4, 1, 1]) == 3
+    assert main.valley_to_valley([1, 4, 1, 1, 1, 1, 4]) == 2
 
     test_piece = [1, 3, 2, 1, 4, 3, 3, 1, 3, 1, 4, 1, 4]
     #         **  **
@@ -66,3 +71,55 @@ def test_valley_to_valley():
             assert main.valley_to_valley(test_piece) == 7
             test_piece = test_piece[1:] + [test_piece[0]]
         test_piece.reverse()
+
+
+def check_puzzle(pieces, golden):
+    main.verify_pieces(pieces)
+
+    variations = [[p, list(reversed(p))] for p in pieces[1:]]
+    duplicates, solutions, tested, elapsed_time = main.Solver(
+        pieces[0], variations
+    ).solve()
+
+    assert len(golden) == len(solutions)
+    for a, b in zip(golden, solutions):
+        assert a == b
+
+
+def test_george():
+    check_puzzle(
+        [
+            [2, 1, 5, 1, 3, 1, 3, 2],
+            [1, 3, 2, 1, 4, 2, 1, 4],
+            [2, 1, 4, 1, 3, 1, 3],
+            [2, 2, 1, 5, 2, 1, 3, 2],
+        ],
+        [((0, 4, 2, 1), (1, 1, -1, 0), (1, 6, 0, 1))],
+    )
+
+
+def test_sawtooth():
+    check_puzzle(
+        [
+            [2, 1, 3, 4, 1, 2, 2, 3],
+            [3, 2, 3, 1, 2, 4, 3, 3, 1, 2],
+            [2, 2, 1, 5, 1, 5, 2, 1, 3, 2, 3],
+            [2, 2, 1, 5, 1, 5, 4, 1, 2, 2, 3, 2, 3],
+        ],
+        [((0, 2, 0, 1), (0, -3, 3, 4), (0, 3, 3, 1))],
+    )
+
+
+def test_scott():
+    check_puzzle(
+        [
+            [3, 1, 3, 3, 2, 1, 3, 4, 1],
+            [3, 1, 2, 3, 4, 1, 2, 2, 3],
+            [4, 3, 3, 1, 2, 3, 3, 2, 3, 2, 1, 3],
+            [3, 1, 2, 3, 3, 2, 2, 1, 4, 3],
+        ],
+        [
+            ((0, -3, 1, 5), (0, -2, 0, 3), (0, 1, 1, 5)),
+            ((0, -3, 1, 5), (0, 0, 4, 0), (0, 1, 1, 5)),
+        ],
+    )
