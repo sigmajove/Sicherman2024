@@ -1,1 +1,3 @@
-answer.png
+*.pyc
+*.swp
+*.png
