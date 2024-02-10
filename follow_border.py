@@ -173,12 +173,7 @@ class Solver:
 
         # Test if the border crosses itself.
         # This means there is an overlap or hole.
-        vertices = set()
-        s = Cursor(0, 0, 0)
-        for a in splice[:]:
-            s.advance(a)
-            vertices.add((s.x, s.y))
-        if len(vertices) != len(splice):
+        if test_for_overlap(splice):
             return False
 
         # Find the starting positions for the splice and the
