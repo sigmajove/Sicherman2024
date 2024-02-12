@@ -123,3 +123,23 @@ def test_scott():
             ((0, -3, 1, 5), (0, 0, 4, 0), (0, 1, 1, 5)),
         ],
     )
+
+
+def test_convex():
+    # Test the case where all the pieces are convex.
+    pieces = [
+        [1, 2, 1, 2],
+        [1, 2, 1, 2],
+        [1, 1, 1],
+        [1, 1, 1],
+    ]
+    main.verify_pieces(pieces)
+
+    variations = [[p, list(reversed(p))] for p in pieces[1:]]
+    duplicates, solutions, tested, elapsed_time = main.Solver(
+        pieces[0], variations
+    ).solve()
+
+    # Because of all the symmetries, there are a huge number of solutions.
+    # We don't check them all, simply their count.
+    assert len(solutions) == 8640
