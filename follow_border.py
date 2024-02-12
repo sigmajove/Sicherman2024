@@ -234,11 +234,15 @@ class Solver:
         """
         start_time = time.perf_counter_ns()
 
-        # Try connecting each of the three variations with piece0.
-        # deferring the other two variations to _level_two.
-        self._level_one(0, 1, 2)
-        self._level_one(1, 0, 2)
-        self._level_one(2, 0, 1)
+        # Try connecting each of the variations with piece0,
+        # and then explore all the ways of connecting the rest
+        # of the pieces.
+
+        iota = list(range(len(self._variations)))
+        for i, var_id in enumerate(iota):
+            not_i = iota[:]
+            not_i.pop(i)
+            self._explore(var_id, not_i)
 
         elapsed_time = time.perf_counter_ns() - start_time
 
@@ -249,50 +253,42 @@ class Solver:
             elapsed_time,
         ]
 
-    def _level_one(self, var_id, x0, x1):
+    def _explore(self, var_id, rest):
         """Examine all ways of attaching the piece specified by var_id
-        to piece0.
+        to what is on the top of the stack, and then recursively examine
+        all the var_ids in rest.
         """
+        if len(rest) == 0:
+            if valley_to_valley(self._border()) > len(
+                self._variations[var_id][0]
+            ):
+                # A very effective optimization.
+                return
 
-        for _ in self._connect_all(var_id):
-            self._level_two(x0, x1)
-            self._level_two(x1, x0)
-            self._stack.pop()
-            self._answer[var_id] = None
-
-    def _level_two(self, var_id, x0):
-        """Examine all ways of attaching the piece specified by var_id
-        as the second piece placed.
-        """
-        surfaces = []
-        for _ in self._connect_all(var_id):
-            self._level_three(x0)
-            self._stack.pop()
-            self._answer[var_id] = None
-
-    def _level_three(self, var_id):
-        """Examine all ways of attaching the piece specified by var_id
-        as the final piece placed.
-        """
-        if valley_to_valley(self._border()) > len(self._variations[var_id][0]):
-            # A very effective optimization.
-            return
-
-        for _ in self._connect_all(var_id):
-            # self._border() surronds the connection of all four puzzle pieces.
-            # Test if that border is convex.
-            self._candidates_tested += 1
-            if all(a <= 3 for a in self._border()):
-                # We have found a solution
-                self._solutions.add(tuple(tuple(x) for x in self._answer))
-                self._duplicate_solutions += 1
-            self._stack.pop()
-            self._answer[var_id] = None
+            for _ in self._connect_all(var_id):
+                # self._border() surronds the connection of all four puzzle
+                # pieces. Test if that border is convex.
+                self._candidates_tested += 1
+                if all(a <= 3 for a in self._border()):
+                    # We have found a solution
+                    self._solutions.add(tuple(tuple(x) for x in self._answer))
+                    self._duplicate_solutions += 1
+                self._stack.pop()
+                self._answer[var_id] = None
+        else:
+            for _ in self._connect_all(var_id):
+                for i, r in enumerate(rest):
+                    not_i = rest[:]
+                    not_i.pop(i)
+                    self._explore(r, not_i)
+                self._stack.pop()
+                self._answer[var_id] = None
 
 
 def test_for_overlap(border):
-    # Test if the border crosses itself.
-    # This means there is an overlap or hole.
+    """Test if the border crosses itself.
+    This means there is an overlap or hole.
+    """
     vertices = set()
     s = Cursor(0, 0, 0)
     for i, a in enumerate(border):
@@ -325,6 +321,7 @@ def verify_pieces(pieces):
 
 
 def solve_puzzle(pieces):
+    """The main program."""
     verify_pieces(pieces)
     write_pieces(pieces)
 
@@ -357,6 +354,10 @@ COLORS = [
 
 
 def generate_piece(angles, x, y, direction):
+    """Convert a list of angles to a list of (x, y) coordinates.
+    x and y determines the first coordinate.
+    direction determines the rotation of the piece.
+    """
     c = Cursor(x, y, direction)
     result = []
     for a in angles:
@@ -382,6 +383,7 @@ def write_answer(answer, piece0, variations):
 
 
 def write_pieces(pieces):
+    """Write out the pieces in "pieces.png"""
     write_surfaces(
         "pieces.png",
         [
