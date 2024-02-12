@@ -113,7 +113,7 @@ class Solver:
 
         # An answer consists of an [flip, x, y, direction] for
         # each of the three pieces.  None means the piece is unplaced.
-        self._answer = 3 * [None]
+        self._answer = len(variations) * [None]
 
         # Used to record every solution we find.
         # It is a set to filter out duplicate solutions.
@@ -319,6 +319,12 @@ def verify_pieces(pieces):
             print("Overlapping piece", p)
             raise RuntimeError
 
+        # Check that the piece is a closed loop
+        c = Cursor(0, 0, 0)
+        for a in p:
+            c.advance(a)
+        assert c.x == 0 and c.y == 0
+
 
 def solve_puzzle(pieces):
     """The main program."""
@@ -347,10 +353,11 @@ def solve_puzzle(pieces):
 
 
 # The colors that are used to distinguish the different pieces in the
-# output file.
+# output file. We support at most five colors. Obviously that would be
+# easy to fix if anyone cared.
 COLORS = [
     colorsys.hls_to_rgb(hue / 360.0, 0.5, 0.7) for hue in [0, 60, 150, 270]
-]
+] + [(192.0 / 255, 192.0 / 255, 192.0 / 255)]
 
 
 def generate_piece(angles, x, y, direction):
@@ -361,8 +368,8 @@ def generate_piece(angles, x, y, direction):
     c = Cursor(x, y, direction)
     result = []
     for a in angles:
-        c.advance(a)
         result.append([c.x, c.y])
+        c.advance(a)
     return result
 
 
