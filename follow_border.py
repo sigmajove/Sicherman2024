@@ -9,6 +9,43 @@ from dataclasses import dataclass
 import cairo
 
 
+def _has_rotational_symmetry(piece, s):
+    lp = len(piece)
+    if s > lp or lp % s != 0:
+        return None
+    period = lp // s
+    for i in range(period):
+        val = piece[i]
+        for j in range(1, s):
+            if val != piece[i + j * period]:
+                return None
+    return period
+
+
+def rotational_symmetry(piece):
+    """A piece has rotational symmetry if it has the value
+    n * P for some in integer n, and list P.
+    If the piece has rotational symmetry, return len(P),
+    otherwise len len(piece).
+    """
+    for s in [6, 3, 2]:
+        period = _has_rotational_symmetry(piece, s)
+        if period is not None:
+            return (6 // s, period)
+    return None
+
+
+def has_mirror_symmetry(piece):
+    """Return whether flipping the pieces leaves it the same modulo rotations."""
+    mirrored = piece[:]
+    mirrored.reverse()
+    for _ in range(len(piece)):
+        if mirrored == piece:
+            return True
+        mirrored = mirrored[1:] + [mirrored[0]]
+    return False
+
+
 @dataclass(slots=True)
 class Cursor:
     """A class that can be used to iterate over vertices of a polygon
@@ -95,25 +132,35 @@ class StackFrame:
     position: list[int]
 
 
+class EarlyExit(Exception):
+    """For testing. Raised to abandon the search early."""
+
+
 class Solver:
     """Solves George Sicherman's 2024 New Year Puzzle."""
 
-    def __init__(self, piece0, variations):
+    def __init__(self, pieces):
         # Each piece of the puzzle are described as the list of angles
         # at each vertex of the polygon. An angle is a value in range(1, 6)
         # expressed in units of 60 degrees.
         # For all but the first piece, we have a list of list of variations
         # to allow for fliping a piece.
 
-        # The subsequent pieces have variations to allow for flipping the piece.
-        self._variations = variations
+        self._piece0 = pieces[0]
+
+        # Add the mirror image unless the piece has mirror symmetry.
+        self._variations = [
+            [p] + ([] if has_mirror_symmetry(p) else [list(reversed(p))])
+            for p in pieces[1:]
+        ]
+        self._rotational_symmetry = [rotational_symmetry(p) for p in pieces[1:]]
 
         # We implement the search tree using a stack.
-        self._stack = [StackFrame(piece0, [0, 0, 0])]
+        self._stack = [StackFrame(pieces[0], [0, 0, 0])]
 
         # An answer consists of an [flip, x, y, direction] for
-        # each of the three pieces.  None means the piece is unplaced.
-        self._answer = len(variations) * [None]
+        # each of the variations.  None means the piece is unplaced.
+        self._answer = len(self._variations) * [None]
 
         # Used to record every solution we find.
         # It is a set to filter out duplicate solutions.
@@ -121,8 +168,6 @@ class Solver:
 
         self._duplicate_solutions = 0
         self._candidates_tested = 0
-
-        self._piece0 = piece0
 
     def _border(self):
         """Return the border on top of the stack"""
@@ -202,7 +247,20 @@ class Solver:
 
         # Record the position of the placed piece, in case this is
         # part of a solution.
-        self._answer[var_id] = [flip_id, c.x, c.y, c.direction]
+
+        sym = self._rotational_symmetry[var_id]
+        self._answer[var_id] = (
+            (flip_id, c.x, c.y, c.direction)
+            if sym is None
+            else (
+                flip_id,
+                *_normalize(
+                    self._variations[var_id][flip_id],
+                    sym,
+                    (c.x, c.y, c.direction),
+                ),
+            )
+        )
 
         # Push the splice onto the stack to be used by deeper levels.
         self._stack.append(StackFrame(splice, [splice_x, splice_y, splice_d]))
@@ -238,11 +296,14 @@ class Solver:
         # and then explore all the ways of connecting the rest
         # of the pieces.
 
-        iota = list(range(len(self._variations)))
-        for i, var_id in enumerate(iota):
-            not_i = iota[:]
-            not_i.pop(i)
-            self._explore(var_id, not_i)
+        try:
+            iota = list(range(len(self._variations)))
+            for i, var_id in enumerate(iota):
+                not_i = iota[:]
+                not_i.pop(i)
+                self._explore(var_id, not_i)
+        except EarlyExit:
+            pass
 
         elapsed_time = time.perf_counter_ns() - start_time
 
@@ -252,6 +313,24 @@ class Solver:
             self._candidates_tested,
             elapsed_time,
         ]
+
+    def display_answer(self):
+        """Write out the answer in the file answer.png."""
+
+        write_surfaces(
+            "answer.png",
+            [
+                write_answer(s, self._piece0, self._variations)
+                for i, s in enumerate(self._solutions)
+                if i < 25
+            ],
+        )
+
+        # Write all the answers to a text file.
+        with open("answer.txt", "w", encoding="utf-8") as f:
+            for s in self._solutions:
+                f.write(str(s))
+                f.write("\n")
 
     def _explore(self, var_id, rest):
         """Examine all ways of attaching the piece specified by var_id
@@ -283,6 +362,19 @@ class Solver:
                     self._explore(r, not_i)
                 self._stack.pop()
                 self._answer[var_id] = None
+
+
+def _normalize(piece, symmetry, position):
+    """Given the position of a piece with rotational symmetry,
+    normalize the position of that piece to use an approved angle.
+    """
+    max_dir, period = symmetry
+    c = Cursor(*position)
+    i = iter(piece)
+    while c.direction >= max_dir:
+        for _ in range(period):
+            c.advance(next(i))
+    return (c.x, c.y, c.direction)
 
 
 def test_for_overlap(border):
@@ -331,10 +423,8 @@ def solve_puzzle(pieces):
     verify_pieces(pieces)
     write_pieces(pieces)
 
-    variations = [[p, list(reversed(p))] for p in pieces[1:]]
-    duplicates, solutions, tested, elapsed_time = Solver(
-        pieces[0], variations
-    ).solve()
+    solver = Solver(pieces)
+    duplicates, solutions, tested, elapsed_time = solver.solve()
 
     print(f"Time {elapsed_time*1.0e-9:.3f} seconds")
     print(f"{tested:,} candidates were tested")
@@ -344,10 +434,10 @@ def solve_puzzle(pieces):
         print("Found no solutions")
     elif num_solutions == 1:
         print("Found a single solution")
-        display_answer(pieces[0], variations, solutions)
+        solver.display_answer()
     else:
         print(f"Found {num_solutions} solutions")
-        display_answer(pieces[0], variations, solutions)
+        solver.display_answer()
     if duplicates > 1:
         print(f"There are {duplicates - 1} duplicates")
 
@@ -396,19 +486,6 @@ def write_pieces(pieces):
         [
             make_surface([[generate_piece(p, 0, 0, 0), COLORS[i]]])
             for i, p in enumerate(pieces)
-        ],
-    )
-
-
-def display_answer(piece0, variations, solutions):
-    """Write out the answer in the file answer.png."""
-
-    write_surfaces(
-        "answer.png",
-        [
-            write_answer(s, piece0, variations)
-            for i, s in enumerate(solutions)
-            if i < 25
         ],
     )
 
