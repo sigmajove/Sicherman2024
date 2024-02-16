@@ -73,6 +73,38 @@ def test_valley_to_valley():
         test_piece.reverse()
 
 
+def test_splice():
+    path0 = [1, 2, 3, 4, 5, 6, 7]
+    path1 = [10, 20, 30, 40, 50, 60, 70, 80, 90]
+
+    def run_test(first1, last1, first2, last2, result):
+        first0 = next(i for i, p in enumerate(path0) if p == first1)
+        last0 = next(i for i, p in enumerate(path0) if p == last1)
+        first1 = next(i for i, p in enumerate(path1) if p == first2)
+        last1 = next(i for i, p in enumerate(path1) if p == last2)
+
+        splice = main.splice_paths(
+            path0=path0,
+            first0=first0,
+            last0=last0,
+            path1=path1,
+            first1=first1,
+            last1=last1,
+        )
+        assert splice == result
+        assert splice[0] == path0[first0] + path1[last1]
+
+    run_test(2, 6, 20, 70, [72, 3, 4, 5, 26, 30, 40, 50, 60])
+    run_test(6, 2, 20, 70, [76, 7, 1, 22, 30, 40, 50, 60])
+    run_test(6, 2, 70, 20, [26, 7, 1, 72, 80, 90, 10])
+    run_test(7, 1, 90, 10, [17, 91])
+
+    # This edges cases never show up.
+    # firstN and lastN are never equal.
+    run_test(3, 3, 90, 10, [13, 93])
+    run_test(3, 3, 90, 90, [93, 93])
+
+
 def check_puzzle(pieces, golden):
     main.verify_pieces(pieces)
 

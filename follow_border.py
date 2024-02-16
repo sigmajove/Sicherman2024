@@ -76,14 +76,15 @@ class Cursor:
         self.direction = (self.direction + 3 - angle) % 6
 
         # Move one step in the new direction.
-        dx, dy = WHEEL[self.direction]
-        self.x += dx
-        self.y += dy
+        self.x += (2, 1, -1, -2, -1, 1)[self.direction]
+        self.y += (0, 1, 1, 0, -1, -1)[self.direction]
 
 
-# WHEEL[direction] is the coordinates of the point adjacent to (0, 0)
-# in the given direction.  Like the spokes of a wheel.
-WHEEL = [(2, 0), (1, 1), (-1, 1), (-2, 0), (-1, -1), (1, -1)]
+def find_valley(piece):
+    """Return the index of a valley in the piece, or None if there is not
+    a valley.
+    """
+    return next((i for i, v in enumerate(piece) if 4 <= v <= 5), None)
 
 
 def valley_to_valley(piece):
@@ -98,7 +99,7 @@ def valley_to_valley(piece):
     every way that piece can be attached.
     """
     # Find a valley
-    one_valley = next((i for i, v in enumerate(piece) if 4 <= v <= 5), None)
+    one_valley = find_valley(piece)
     if one_valley is None:
         # There is no valley
         return 0
@@ -121,6 +122,42 @@ def valley_to_valley(piece):
         i = (i + 1) % len(piece)
 
 
+def splice_paths(path0, first0, last0, path1, first1, last1):
+    """Splice the subpath of path0 from first0 to last0 with the subpath
+    of path1 from from first1 to last1. The outputs at the two join points
+    are the sum of the correpsonding inputs. The endpoints are inclusive,
+    and may wrap around. The first element of the returned path will
+    be path0[first0] + path1[last1].
+
+    Example:
+      path0 = [1, 2, 3, 4, 5, 6, 7]
+      first0 = 5
+      last0 = 1
+      path1 = [10, 20, 30, 40, 50, 60, 70, 80, 90]
+      first1 = 1
+      last1 = 6
+      splice_path returns [76, 7, 1, 22, 30, 40, 50, 60]
+    """
+
+    splice = [path0[first0] + path1[last1]]
+
+    if first0 <= last0:
+        splice += path0[first0 + 1 : last0]
+    else:
+        splice += path0[first0 + 1 :]
+        splice += path0[:last0]
+
+    splice.append(path0[last0] + path1[first1])
+
+    if first1 <= last1:
+        splice += path1[first1 + 1 : last1]
+    else:
+        splice += path1[first1 + 1 :]
+        splice += path1[:last1]
+
+    return splice
+
+
 @dataclass(slots=True)
 class StackFrame:
     """The type of Solver._stack[i]"""
@@ -129,7 +166,7 @@ class StackFrame:
     border: list[int]
 
     # The position [x, y, direction] of border.
-    position: list[int]
+    position: tuple[int, int, int]
 
 
 class EarlyExit(Exception):
@@ -149,14 +186,14 @@ class Solver:
         self._piece0 = pieces[0]
 
         # Add the mirror image unless the piece has mirror symmetry.
-        self._variations = [
-            [p] + ([] if has_mirror_symmetry(p) else [list(reversed(p))])
+        self._variations = tuple(
+            tuple([p] + ([] if has_mirror_symmetry(p) else [list(reversed(p))]))
             for p in pieces[1:]
-        ]
+        )
         self._rotational_symmetry = [rotational_symmetry(p) for p in pieces[1:]]
 
         # We implement the search tree using a stack.
-        self._stack = [StackFrame(pieces[0], [0, 0, 0])]
+        self._stack = [StackFrame(pieces[0], (0, 0, 0))]
 
         # An answer consists of an [flip, x, y, direction] for
         # each of the variations.  None means the piece is unplaced.
@@ -177,95 +214,6 @@ class Solver:
         """Return the starting position for the border on top of stack."""
         return self._stack[-1].position
 
-    def _try_connect(self, i, var_id, flip_id, j):
-        """Test if is possible to connect the piece at
-        self._variations[var_id][flip_id] with the border on top of the
-        stack at position (i, j). If it is possible, pushes the combined
-        border onto the stack and return True. If not, return False.
-        """
-        p0 = self._border()
-        p1 = self._variations[var_id][flip_id]
-
-        start = p0[i] + p1[j]
-        if start >= 6:
-            return False
-        next_i = i
-        prev_j = j
-        while True:
-            next_i = (next_i + 1) % len(p0)
-            prev_j = (prev_j - 1) % len(p1)
-            finish = p0[next_i] + p1[prev_j]
-            if finish > 6:
-                return False
-            if finish == 6:
-                continue
-            break
-
-        # Compute [finish] + p0[next_i + 1 : j] + [start] + p1[j + 1 : prev_j]
-        # implementing wraparound in p0 and p1.
-        splice = [finish]
-        if next_i <= i:
-            splice += p0[next_i + 1 : i]
-        else:
-            splice += p0[next_i + 1 :]
-            splice += p0[:i]
-        splice.append(start)
-        if j <= prev_j:
-            splice += p1[j + 1 : prev_j]
-        else:
-            splice += p1[j + 1 :]
-            splice += p1[:prev_j]
-
-        # Test if the border crosses itself.
-        # This means there is an overlap or hole.
-        if test_for_overlap(splice):
-            return False
-
-        # Find the starting positions for the splice and the
-        # newly placed piece.
-        c = Cursor(*self._position())
-        for v in p0[:i]:
-            c.advance(v)
-        c.advance(start)
-        if j <= prev_j:
-            for v in p1[j + 1 : prev_j]:
-                c.advance(v)
-        else:
-            for v in p1[j + 1 :]:
-                c.advance(v)
-            for v in p1[:prev_j]:
-                c.advance(v)
-
-        # The new starting location for splice.
-        splice_x = c.x
-        splice_y = c.y
-        splice_d = c.direction
-
-        # Iterate the rest of p1 to get its starting position.
-        for v in p1[prev_j:]:
-            c.advance(v)
-
-        # Record the position of the placed piece, in case this is
-        # part of a solution.
-
-        sym = self._rotational_symmetry[var_id]
-        self._answer[var_id] = (
-            (flip_id, c.x, c.y, c.direction)
-            if sym is None
-            else (
-                flip_id,
-                *_normalize(
-                    self._variations[var_id][flip_id],
-                    sym,
-                    (c.x, c.y, c.direction),
-                ),
-            )
-        )
-
-        # Push the splice onto the stack to be used by deeper levels.
-        self._stack.append(StackFrame(splice, [splice_x, splice_y, splice_d]))
-        return True
-
     def _connect_all(self, var_id):
         """var_id is the index one of the pieces in self._variations.
         Generate all legal ways of attaching this piece to the aggregate
@@ -278,9 +226,15 @@ class Solver:
         """
         var = self._variations[var_id]
         for flip_id in range(len(var)):
-            for i in range(len(self._border())):
-                for j in range(len(var[flip_id])):
-                    if self._try_connect(i, var_id, flip_id, j):
+            for border_start in range(len(self._border())):
+                for piece_finish in range(len(var[flip_id])):
+                    if self._test_connection(
+                        var_id=var_id,
+                        flip_id=flip_id,
+                        border_start=border_start,
+                        piece_finish=piece_finish,
+                        is_leaf=False,
+                    ):
                         yield None
 
     def solve(self):
@@ -302,6 +256,7 @@ class Solver:
                 not_i = iota[:]
                 not_i.pop(i)
                 self._explore(var_id, not_i)
+                print(f"Finished {i} of {len(iota)}")
         except EarlyExit:
             pass
 
@@ -332,29 +287,213 @@ class Solver:
                 f.write(str(s))
                 f.write("\n")
 
+    def _record_solution(self, var_id):
+        self._solutions.add(tuple(tuple(x) for x in self._answer))
+        self._duplicate_solutions += 1
+        self._answer[var_id] = None
+
+    def _check_hill_valley(self, var_id, flip_id, piece_join, border_join):
+        """border[border_join] is a valley, and piece[piece_join] is
+        a matching hill. Check whether it is possible to join the two
+        at that point, and if so, record the solution.
+        """
+        piece = self._variations[var_id][flip_id]
+        border = self._border()
+
+        piece_next = piece_join
+        border_prev = border_join
+        while True:
+            piece_next = (piece_next + 1) % len(piece)
+            border_prev = (border_prev - 1) % len(border)
+            joined = piece[piece_next] + border[border_prev]
+            if joined < 6:
+                break
+            if joined > 6:
+                # There is an overlap
+                return
+
+        piece_prev = piece_join
+        border_next = border_join
+        while True:
+            piece_prev = (piece_prev - 1) % len(piece)
+            border_next = (border_next + 1) % len(border)
+            joined = piece[piece_prev] + border[border_next]
+            if joined < 6:
+                break
+            if joined > 6:
+                # There is an overlap
+                return
+
+        if self._test_candidate(
+            var_id=var_id,
+            flip_id=flip_id,
+            splice=splice_paths(
+                piece,
+                piece_next,
+                piece_prev,
+                border,
+                border_next,
+                border_prev,
+            ),
+            border_start=border_prev,
+            piece_finish=piece_next,
+            is_leaf=True,
+        ):
+            self._record_solution(var_id)
+
+    def _record_position(self, var_id, flip_id, cursor):
+        """Record the position specified by cursor of the piece specified by
+        var_id and flip_id. If the piece is symmetrical, normalize the position
+        with respect to the symmetry of the piece.
+        """
+        sym = self._rotational_symmetry[var_id]
+        self._answer[var_id] = (
+            (flip_id, cursor.x, cursor.y, cursor.direction)
+            if sym is None
+            else (
+                flip_id,
+                *_normalize(
+                    self._variations[var_id][flip_id],
+                    sym,
+                    (cursor.x, cursor.y, cursor.direction),
+                ),
+            )
+        )
+
+    def _test_candidate(
+        self,
+        var_id,
+        flip_id,
+        splice,
+        border_start,
+        piece_finish,
+        is_leaf,
+    ):
+        border = self._border()
+        piece = self._variations[var_id][flip_id]
+
+        self._candidates_tested += 1
+
+        if is_leaf and not all(angle <= 3 for angle in splice):
+            # The final border is not convex.
+            return False
+
+        if test_for_overlap(splice):
+            return False
+
+        # Compute the positions.
+        c = Cursor(*self._position())
+        for v in border[:border_start]:
+            c.advance(v)
+
+        # c is now the position of the splice.
+        if not is_leaf:
+            # Push the splice onto the stack to be used by deeper levels.
+            self._stack.append(StackFrame(splice, (c.x, c.y, c.direction)))
+            # Caution: at this point border != self.border().
+
+        c.advance(border[border_start] + piece[piece_finish])
+        for v in piece[piece_finish + 1 :]:
+            c.advance(v)
+
+        # c is now the position where piece is placed.
+        self._record_position(var_id, flip_id, c)
+
+        return True
+
+    def _test_connection(
+        self, var_id, flip_id, border_start, piece_finish, is_leaf
+    ):
+        border = self._border()
+        piece = self._variations[var_id][flip_id]
+
+        limit = (6, 3)[is_leaf]
+        if border[border_start] + piece[piece_finish] > limit:
+            # There is an overlap.
+            return False
+        border_finish = border_start
+        piece_start = piece_finish
+        while True:
+            border_finish = (border_finish + 1) % len(border)
+            piece_start = (piece_start - 1) % len(piece)
+            joined = border[border_finish] + piece[piece_start]
+            if joined > limit:
+                # There is an overlap.
+                return False
+            if joined != 6:
+                break
+
+        # splice is the border of the joined pieces. It begins with the
+        # join of piece[piece_start] and border[border_finish]
+
+        return self._test_candidate(
+            var_id=var_id,
+            flip_id=flip_id,
+            splice=splice_paths(
+                piece,
+                piece_finish,
+                piece_start,
+                border,
+                border_finish,
+                border_start,
+            ),
+            border_start=border_start,
+            piece_finish=piece_finish,
+            is_leaf=is_leaf,
+        )
+
+    def _place_last_piece(self, var_id):
+        """Try to place the last piece of the puzzle, which is var_id"""
+        final_piece = self._variations[var_id]
+
+        border = self._border()
+
+        if valley_to_valley(border) > len(final_piece[0]):
+            # The final piece is not big enough to reach
+            # all the remaining valleys on the border.
+            return
+
+        valley_id = find_valley(border)
+        if valley_id is None:
+            # The unusual case that there are no valleys on the border.
+            # We have to place the last piece somewhere on the border
+            # without creating any new valleys.
+            for flip_id, piece in enumerate(final_piece):
+                for border_start in range(len(border)):
+                    for piece_finish in range(len(piece)):
+                        if self._test_connection(
+                            var_id=var_id,
+                            flip_id=flip_id,
+                            border_start=border_start,
+                            piece_finish=piece_finish,
+                            is_leaf=True,
+                        ):
+                            self._record_solution(var_id)
+        else:
+            # There is at least one valley on the border.
+            # The final piece must be placed to fill that valley.
+
+            # The angle on the piece that must match the valley
+            # on the border.
+            hill = 6 - border[valley_id]
+
+            for flip_id, piece in enumerate(final_piece):
+                for piece_join, angle in enumerate(piece):
+                    if angle == hill:
+                        self._check_hill_valley(
+                            var_id=var_id,
+                            flip_id=flip_id,
+                            piece_join=piece_join,
+                            border_join=valley_id,
+                        )
+
     def _explore(self, var_id, rest):
         """Examine all ways of attaching the piece specified by var_id
         to what is on the top of the stack, and then recursively examine
         all the var_ids in rest.
         """
-        if len(rest) == 0:
-            if valley_to_valley(self._border()) > len(
-                self._variations[var_id][0]
-            ):
-                # A very effective optimization.
-                return
-
-            for _ in self._connect_all(var_id):
-                # self._border() surronds the connection of all four puzzle
-                # pieces. Test if that border is convex.
-                self._candidates_tested += 1
-                if all(a <= 3 for a in self._border()):
-                    # We have found a solution
-                    self._solutions.add(tuple(tuple(x) for x in self._answer))
-                    self._duplicate_solutions += 1
-                self._stack.pop()
-                self._answer[var_id] = None
-        else:
+        if rest:
+            # Recursively grind through all the combinations.
             for _ in self._connect_all(var_id):
                 for i, r in enumerate(rest):
                     not_i = rest[:]
@@ -362,6 +501,8 @@ class Solver:
                     self._explore(r, not_i)
                 self._stack.pop()
                 self._answer[var_id] = None
+        else:
+            self._place_last_piece(var_id)
 
 
 def _normalize(piece, symmetry, position):
@@ -455,12 +596,12 @@ def generate_piece(angles, x, y, direction):
     x and y determines the first coordinate.
     direction determines the rotation of the piece.
     """
-    c = Cursor(x, y, direction)
-    result = []
-    for a in angles:
-        result.append([c.x, c.y])
-        c.advance(a)
-    return result
+    def generate():
+        c = Cursor(x, y, direction)
+        for a in angles:
+            yield (c.x, x.y)
+            c.advance(a)
+    return tuple(generate())
 
 
 def write_answer(answer, piece0, variations):
