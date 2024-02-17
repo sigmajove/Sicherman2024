@@ -599,7 +599,7 @@ def generate_piece(angles, x, y, direction):
     def generate():
         c = Cursor(x, y, direction)
         for a in angles:
-            yield (c.x, x.y)
+            yield (c.x, c.y)
             c.advance(a)
     return tuple(generate())
 
