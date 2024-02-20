@@ -105,14 +105,68 @@ def test_splice():
     run_test(3, 3, 90, 90, [93, 93])
 
 
+def test_zeroize():
+    input = [
+        (3, -4, 1),
+        (6, 4, 2),
+        (-23, -5, 7),
+        (-3, 15, 3),
+        (-9, 18, 7),
+        (9, 11, 7),
+        (-4, -19, 6),
+        (2, 24, 7),
+        (-16, -10, 3),
+        (0, 9, 7),
+        (8, -11, 7),
+        (18, -25, 7),
+        (11, 5, 7),
+        (-10, -8, 7),
+        (-13, -17, 2),
+        (15, -9, 7),
+        (-12, 2, 6),
+        (13, 19, 7),
+        (25, 6, 7),
+        (-8, -10, 5),
+        (7, 1, 7),
+    ]
+
+    assert main.zeroize(input) == (
+        (0, 20, 7),
+        (7, 15, 3),
+        (10, 8, 2),
+        (11, 27, 6),
+        (13, 17, 7),
+        (14, 43, 7),
+        (15, 15, 5),
+        (19, 6, 6),
+        (20, 40, 3),
+        (23, 34, 7),
+        (25, 49, 7),
+        (26, 21, 1),
+        (29, 29, 2),
+        (30, 26, 7),
+        (31, 14, 7),
+        (32, 36, 7),
+        (34, 30, 7),
+        (36, 44, 7),
+        (38, 16, 7),
+        (41, 0, 7),
+        (48, 31, 7),
+    )
+
+
 def check_puzzle(pieces, golden):
     main.verify_pieces(pieces)
 
     duplicates, solutions, tested, elapsed_time = main.Solver(pieces).solve()
 
-    assert len(golden) == len(solutions)
-    print(solutions)
-    for a, b in zip(golden, solutions):
+    answers = list(solutions.items())
+    answers.sort()
+    answers = tuple(value for key, value in answers)
+    print(answers)
+
+    assert len(golden) == len(answers)
+    for a, b in zip(golden, answers):
         assert a == b
 
 
@@ -124,7 +178,23 @@ def test_george():
             [2, 1, 4, 1, 3, 1, 3],
             [2, 2, 1, 5, 2, 1, 3, 2],
         ],
-        [((0, 4, 2, 1), (1, 1, -1, 0), (1, 6, 0, 1))],
+        [((1, 3, -1, 0), (0, 4, 0, 0), (1, 1, -1, 3))],
+    )
+
+
+def test_tiny():
+    check_puzzle(
+        [
+            [1, 2, 1, 2],
+            [1, 3, 1, 2, 2],
+            [1, 1, 1],
+        ],
+        [
+            ((0, -1, 1, 1), (0, -4, 0, 3)),
+            ((0, -3, -1, 4), (0, -1, -1, 1)),
+            ((0, 1, -3, 5), (0, 0, -2, 5)),
+            ((0, -2, 2, 2), (0, 0, -2, 5)),
+        ],
     )
 
 
@@ -136,7 +206,7 @@ def test_sawtooth():
             [2, 2, 1, 5, 1, 5, 2, 1, 3, 2, 3],
             [2, 2, 1, 5, 1, 5, 4, 1, 2, 2, 3, 2, 3],
         ],
-        [((0, 4, 2, 1), (0, -3, 3, 4), (0, 3, 3, 1))],
+        [((1, 0, -2, 0), (1, -1, -3, 3), (0, -5, -1, 2))],
     )
 
 
@@ -149,50 +219,29 @@ def test_scott():
             [3, 1, 2, 3, 3, 2, 2, 1, 4, 3],
         ],
         [
-            ((0, -3, 1, 5), (0, -2, 0, 3), (0, 1, 1, 5)),
-            ((0, -3, 1, 5), (0, 0, 4, 0), (0, 1, 1, 5)),
+            ((1, -1, -1, 5), (1, 0, 0, 5), (1, -3, -1, 4)),
+            ((1, -1, -1, 5), (1, -5, -3, 2), (1, -3, -1, 4)),
         ],
     )
 
 
 def test_convex():
-    # Test the case where all the pieces are convex.
-    pieces = [
-        [1, 2, 1, 2],
-        [1, 2, 1, 2],
-        [1, 1, 1],
-        [1, 1, 1],
-    ]
-    main.verify_pieces(pieces)
-
-    duplicates, solutions, tested, elapsed_time = main.Solver(pieces).solve()
-
-    # Because of all the symmetries, there are a large number of solutions.
-    # Since there are duplicate pieces, the actual number of solutions is 15.
-    assert len(solutions) == 60
-
-
-def check_rotational_symmetry(piece, answer):
-    lp = len(piece)
-    rotated = piece[:]
-    for _ in range(lp):
-        assert main.rotational_symmetry(rotated)[1] == answer
-        rotated = rotated[1:] + [rotated[0]]
-
-    for i, p in enumerate(piece):
-        assert (
-            main.rotational_symmetry(piece[:i] + [10 + p] + piece[i + 1 :])
-            is None
-        )
-
-
-def test_rotational_symmetry():
-    for i in range(4, 20):
-        assert main.rotational_symmetry(list(range(i))) is None
-    for n in [6, 3, 2]:
-        check_rotational_symmetry(n * [1], 1)
-        check_rotational_symmetry(n * [1, 2], 2)
-        check_rotational_symmetry(n * [1, 2, 3, 4], 4)
+    check_puzzle(
+        [
+            [1, 2, 1, 2],
+            [1, 2, 1, 2],
+            [1, 1, 1],
+            [1, 1, 1],
+        ],
+        [
+            ((0, -1, 1, 1), (0, -3, 1, 2), (0, -3, -1, 4)),
+            ((0, 1, 1, 1), (0, -4, -2, 4), (0, -3, -1, 4)),
+            ((0, -4, 0, 3), (0, -4, 0, 4), (0, -3, -1, 4)),
+            ((0, -2, -2, 5), (0, 0, 2, 2), (0, -3, -1, 4)),
+            ((0, -3, -3, 5), (0, -4, -2, 4), (0, -3, -1, 4)),
+            ((0, 1, 1, 1), (0, 2, 2, 1), (0, -3, -1, 4)),
+        ],
+    )
 
 
 def check_mirror_symmetry(piece):
@@ -221,27 +270,3 @@ def test_mirror_symmetry():
         for _ in range(len(m)):
             check_mirror_symmetry(m)
             m = m[1:] + [m[0]]
-
-
-def test_normalize():
-    piece = [1, 3, 3, 2, 1, 3, 3, 2]
-
-    # Piece with twofold rotational symmetry
-    symmetry = main.rotational_symmetry(piece)
-    assert symmetry == (3, 4)
-
-    assert main._normalize(piece, symmetry, (1, 1, 0)) == (1, 1, 0)
-    assert main._normalize(piece, symmetry, (-4, 4, 3)) == (1, 1, 0)
-
-    piece = [2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3]
-
-    # Piece with sixfold rotational symmetry
-    symmetry = main.rotational_symmetry(piece)
-    assert symmetry == (1, 2)
-
-    assert main._normalize(piece, symmetry, (6, 2, 0)) == (6, 2, 0)
-    assert main._normalize(piece, symmetry, (8, 4, 1)) == (6, 2, 0)
-    assert main._normalize(piece, symmetry, (6, 6, 2)) == (6, 2, 0)
-    assert main._normalize(piece, symmetry, (2, 6, 3)) == (6, 2, 0)
-    assert main._normalize(piece, symmetry, (0, 4, 4)) == (6, 2, 0)
-    assert main._normalize(piece, symmetry, (2, 2, 5)) == (6, 2, 0)
