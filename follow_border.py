@@ -60,14 +60,12 @@ def annotate(border, x, y, direction):
     containing x and y coordinated and direction for each edge.
     The first element of the returned list will have coordinates x and y.
     """
-
-    def generate():
-        c = Cursor(x, y, direction)
-        for b in border:
-            yield (b, c.x, c.y, c.direction)
-            c.advance(b)
-
-    return list(generate())
+    result = []
+    c = Cursor(x, y, direction)
+    for b in border:
+        result.append((b, c.x, c.y, c.direction))
+        c.advance(b)
+    return result
 
 
 def valley_to_valley(border):
