@@ -1,4 +1,5 @@
 """ This progam finds the solution to George Sicherman's 2024 New Year Puzzle
+splice.append(new_angle, c.x, c.y, c.direction)
 See https://sicherman.net/2024/2024.html
 """
 
@@ -54,46 +55,54 @@ class Cursor:
         self.y += (0, 1, 1, 0, -1, -1)[self.direction]
 
 
-def find_valley(piece):
-    """Return the index of a valley in the piece, or None if there is not
-    a valley.
+def annotate(border, x, y, direction):
+    """Given a list of angles and a starting point, create a thicker list
+    containing x and y coordinated and direction for each edge.
+    The first element of the returned list will have coordinates x and y.
     """
-    return next((i for i, v in enumerate(piece) if 4 <= v <= 5), None)
+
+    def generate():
+        c = Cursor(x, y, direction)
+        for b in border:
+            yield (b, c.x, c.y, c.direction)
+            c.advance(b)
+
+    return list(generate())
 
 
-def valley_to_valley(piece):
+def valley_to_valley(border):
     """Here is a filter that enormously speeds up the search.
-    When the final piece is placed, for the solution to be
+    When the final border is placed, for the solution to be
     correct, it must fill in all remaining valleys. Since
     we are blindly assembling pieces with no guiding intelligence,
     the valleys tend to get equally spread out along the border.
     This function traverses a border and finds the smallest section
     that touches every valley. If that value is larger than the
-    circumference of the final piece, there is no point in trying
-    every way that piece can be attached.
+    circumference of the final border, there is no point in trying
+    every way that border can be attached.
     """
     # Find a valley
-    one_valley = find_valley(piece)
+    one_valley = next((i for i, v in enumerate(border) if 4 <= v[0] <= 5), None)
     if one_valley is None:
         # There is no valley
         return 0
 
     max_delta = -math.inf
-    i = (one_valley + 1) % len(piece)
+    i = (one_valley + 1) % len(border)
     prev_valley = one_valley
     while True:
-        if 4 <= piece[i] <= 5:
+        if 4 <= border[i][0] <= 5:
             # vertex i is a valley
             delta = i - prev_valley
             if delta <= 0:
-                delta += len(piece)
+                delta += len(border)
             if delta > max_delta:
                 max_delta = delta
             if i == one_valley:
                 # We have measured every valley
-                return len(piece) - max_delta
+                return len(border) - max_delta
             prev_valley = i
-        i = (i + 1) % len(piece)
+        i = (i + 1) % len(border)
 
 
 def splice_paths(path0, first0, last0, path1, first1, last1):
@@ -113,7 +122,26 @@ def splice_paths(path0, first0, last0, path1, first1, last1):
       splice_path returns [76, 7, 1, 22, 30, 40, 50, 60]
     """
 
-    splice = [path0[first0] + path1[last1]]
+    a, x, y, direction = path0[last0]
+    c = Cursor(x, y, direction)
+    new_angle = a + path1[first1]
+    splice = [(new_angle, x, y, direction)]
+    c.advance(new_angle)
+
+    if first1 <= last1:
+        for b in path1[first1 + 1 : last1]:
+            splice.append((b, c.x, c.y, c.direction))
+            c.advance(b)
+    else:
+        for b in path1[first1 + 1 :]:
+            splice.append((b, c.x, c.y, c.direction))
+            c.advance(b)
+        for b in path1[:last1]:
+            splice.append((b, c.x, c.y, c.direction))
+            c.advance(b)
+
+    new_angle = path1[last1] + path0[first0][0]
+    splice.append((new_angle, c.x, c.y, c.direction))
 
     if first0 <= last0:
         splice += path0[first0 + 1 : last0]
@@ -121,26 +149,7 @@ def splice_paths(path0, first0, last0, path1, first1, last1):
         splice += path0[first0 + 1 :]
         splice += path0[:last0]
 
-    splice.append(path0[last0] + path1[first1])
-
-    if first1 <= last1:
-        splice += path1[first1 + 1 : last1]
-    else:
-        splice += path1[first1 + 1 :]
-        splice += path1[:last1]
-
     return splice
-
-
-@dataclass(slots=True)
-class StackFrame:
-    """The type of Solver._stack[i]"""
-
-    # The border of the the assembled pieces, expressed as a list of angles.
-    border: list[int]
-
-    # The position [x, y, direction] of border.
-    position: tuple[int, int, int]
 
 
 class EarlyExit(Exception):
@@ -160,6 +169,7 @@ class Solver:
         # Normalize the pieces before presenting them to the solver.
         norm = [normalize_piece(p) for p in pieces]
         norm.sort()
+        write_pieces(norm)
 
         self._piece0 = norm[0]
 
@@ -176,9 +186,6 @@ class Solver:
             for p in norm[1:]
         )
 
-        # We implement the search tree using a stack.
-        self._stack = [StackFrame(norm[0], (0, 0, 0))]
-
         # An answer consists of an [flip, x, y, direction] for
         # each of the variations.  None means the piece is unplaced.
         self._answer = len(self._variations) * [None]
@@ -190,15 +197,7 @@ class Solver:
         self._duplicate_solutions = 0
         self._candidates_tested = 0
 
-    def _border(self):
-        """Return the border on top of the stack"""
-        return self._stack[-1].border
-
-    def _position(self):
-        """Return the starting position for the border on top of stack."""
-        return self._stack[-1].position
-
-    def _connect_all(self, var_id):
+    def _connect_all(self, border, var_id):
         """var_id is the index one of the pieces in self._variations.
         Generate all legal ways of attaching this piece to the aggregate
         on top of the stack.
@@ -210,16 +209,18 @@ class Solver:
         """
         var = self._variations[var_id]
         for flip_id in range(len(var)):
-            for border_start in range(len(self._border())):
+            for border_start in range(len(border)):
                 for piece_finish in range(len(var[flip_id])):
-                    if self._test_connection(
+                    new_border = self._test_connection(
+                        border,
                         var_id=var_id,
                         flip_id=flip_id,
                         border_start=border_start,
                         piece_finish=piece_finish,
                         is_leaf=False,
-                    ):
-                        yield None
+                    )
+                    if new_border:
+                        yield new_border
 
     def solve(self):
         """Solve the puzzle returing:
@@ -234,12 +235,14 @@ class Solver:
         # and then explore all the ways of connecting the rest
         # of the pieces.
 
+        border = annotate(self._piece0, 0, 0, 0)
+
         try:
             iota = list(range(len(self._variations)))
             for i, var_id in enumerate(iota):
                 not_i = iota[:]
                 not_i.pop(i)
-                self._explore(var_id, not_i)
+                self._explore(border, var_id, not_i)
                 print(f"Finished {i} of {len(iota)}")
         except EarlyExit:
             pass
@@ -286,20 +289,20 @@ class Solver:
         self._duplicate_solutions += 1
         self._answer[var_id] = None
 
-    def _check_hill_valley(self, var_id, flip_id, piece_join, border_join):
+    def _check_hill_valley(
+        self, border, var_id, flip_id, piece_join, border_join
+    ):
         """border[border_join] is a valley, and piece[piece_join] is
         a matching hill. Check whether it is possible to join the two
         at that point, and if so, record the solution.
         """
         piece = self._variations[var_id][flip_id]
-        border = self._border()
-
         piece_next = piece_join
         border_prev = border_join
         while True:
             piece_next = (piece_next + 1) % len(piece)
             border_prev = (border_prev - 1) % len(border)
-            joined = piece[piece_next] + border[border_prev]
+            joined = piece[piece_next] + border[border_prev][0]
             if joined < 6:
                 break
             if joined > 6:
@@ -311,7 +314,7 @@ class Solver:
         while True:
             piece_prev = (piece_prev - 1) % len(piece)
             border_next = (border_next + 1) % len(border)
-            joined = piece[piece_prev] + border[border_next]
+            joined = piece[piece_prev] + border[border_next][0]
             if joined < 6:
                 break
             if joined > 6:
@@ -322,119 +325,103 @@ class Solver:
             var_id=var_id,
             flip_id=flip_id,
             splice=splice_paths(
-                piece,
-                piece_next,
-                piece_prev,
                 border,
                 border_next,
                 border_prev,
+                piece,
+                piece_next,
+                piece_prev,
             ),
-            border_start=border_prev,
-            piece_finish=piece_next,
+            piece_start=piece_next,
+            piece_finish=piece_prev,
             is_leaf=True,
         ):
             self._record_solution(var_id)
-
-    def _record_position(self, var_id, flip_id, cursor):
-        """Record the position specified by cursor of the piece specified by
-        var_id and flip_id.
-        """
-        self._answer[var_id] = (flip_id, cursor.x, cursor.y, cursor.direction)
 
     def _test_candidate(
         self,
         var_id,
         flip_id,
         splice,
-        border_start,
+        piece_start,
         piece_finish,
         is_leaf,
     ):
-        border = self._border()
         piece = self._variations[var_id][flip_id]
 
         self._candidates_tested += 1
 
-        if is_leaf and not all(angle <= 3 for angle in splice):
+        if is_leaf and not all(s[0] <= 3 for s in splice):
             # The final border is not convex.
             return False
 
-        if test_for_overlap(splice):
+        # Make sure all of the vertices in the splice are different.
+        if len(set((x, y) for a, x, y, d in splice)) != len(splice):
             return False
 
-        # Compute the positions.
-        c = Cursor(*self._position())
-        for v in border[:border_start]:
-            c.advance(v)
-
-        # c is now the position of the splice.
-        if not is_leaf:
-            # Push the splice onto the stack to be used by deeper levels.
-            self._stack.append(StackFrame(splice, (c.x, c.y, c.direction)))
-            # Caution: at this point border != self.border().
-
-        c.advance(border[border_start] + piece[piece_finish])
-        for v in piece[piece_finish + 1 :]:
+        c = Cursor(*splice[(piece_finish - piece_start) % len(piece)][1:])
+        for v in piece[piece_finish:]:
             c.advance(v)
 
         # c is now the position where piece is placed.
-        self._record_position(var_id, flip_id, c)
-
+        self._answer[var_id] = (flip_id, c.x, c.y, c.direction)
         return True
 
     def _test_connection(
-        self, var_id, flip_id, border_start, piece_finish, is_leaf
+        self, bbb, var_id, flip_id, border_start, piece_finish, is_leaf
     ):
-        border = self._border()
         piece = self._variations[var_id][flip_id]
 
         limit = (6, 3)[is_leaf]
-        if border[border_start] + piece[piece_finish] > limit:
+        if bbb[border_start][0] + piece[piece_finish] > limit:
             # There is an overlap.
             return False
         border_finish = border_start
         piece_start = piece_finish
         while True:
-            border_finish = (border_finish + 1) % len(border)
+            border_finish = (border_finish + 1) % len(bbb)
             piece_start = (piece_start - 1) % len(piece)
-            joined = border[border_finish] + piece[piece_start]
+            joined = bbb[border_finish][0] + piece[piece_start]
             if joined > limit:
                 # There is an overlap.
                 return False
             if joined != 6:
                 break
 
-        # splice is the border of the joined pieces. It begins with the
-        # join of piece[piece_start] and border[border_finish]
-
-        return self._test_candidate(
-            var_id=var_id,
-            flip_id=flip_id,
-            splice=splice_paths(
-                piece,
-                piece_finish,
-                piece_start,
-                border,
-                border_finish,
-                border_start,
-            ),
-            border_start=border_start,
-            piece_finish=piece_finish,
-            is_leaf=is_leaf,
+        splice = splice_paths(
+            bbb,
+            border_finish,
+            border_start,
+            piece,
+            piece_finish,
+            piece_start,
+        )
+        return (
+            splice
+            if self._test_candidate(
+                var_id=var_id,
+                flip_id=flip_id,
+                splice=splice,
+                piece_start=piece_finish,
+                piece_finish=piece_start,
+                is_leaf=is_leaf,
+            )
+            else None
         )
 
-    def _place_last_piece(self, var_id):
+    def _place_last_piece(self, border, var_id):
         """Try to place the last piece of the puzzle, which is var_id"""
         final_piece = self._variations[var_id]
-
-        border = self._border()
 
         if valley_to_valley(border) > len(final_piece[0]):
             # The final piece is not big enough to reach
             # all the remaining valleys on the border.
             return
 
-        valley_id = find_valley(border)
+        valley_id = next(
+            (i for i, v in enumerate(border) if 4 <= v[0] <= 5),
+            None,
+        )
         if valley_id is None:
             # The unusual case that there are no valleys on the border.
             # We have to place the last piece somewhere on the border
@@ -443,6 +430,7 @@ class Solver:
                 for border_start in range(len(border)):
                     for piece_finish in range(len(piece)):
                         if self._test_connection(
+                            border,
                             var_id=var_id,
                             flip_id=flip_id,
                             border_start=border_start,
@@ -456,34 +444,34 @@ class Solver:
 
             # The angle on the piece that must match the valley
             # on the border.
-            hill = 6 - border[valley_id]
+            hill = 6 - border[valley_id][0]
 
             for flip_id, piece in enumerate(final_piece):
                 for piece_join, angle in enumerate(piece):
                     if angle == hill:
                         self._check_hill_valley(
+                            border,
                             var_id=var_id,
                             flip_id=flip_id,
                             piece_join=piece_join,
                             border_join=valley_id,
                         )
 
-    def _explore(self, var_id, rest):
+    def _explore(self, border, var_id, rest):
         """Examine all ways of attaching the piece specified by var_id
         to what is on the top of the stack, and then recursively examine
         all the var_ids in rest.
         """
         if rest:
             # Recursively grind through all the combinations.
-            for _ in self._connect_all(var_id):
+            for new_border in self._connect_all(border, var_id):
                 for i, r in enumerate(rest):
                     not_i = rest[:]
                     not_i.pop(i)
-                    self._explore(r, not_i)
-                self._stack.pop()
+                    self._explore(new_border, r, not_i)
                 self._answer[var_id] = None
         else:
-            self._place_last_piece(var_id)
+            self._place_last_piece(border, var_id)
 
 
 def test_for_overlap(border):
@@ -542,7 +530,6 @@ def normalize_piece(piece):
 def solve_puzzle(pieces):
     """The main program."""
     verify_pieces(pieces)
-    write_pieces(pieces)
 
     solver = Solver(pieces)
 

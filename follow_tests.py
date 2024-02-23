@@ -43,18 +43,21 @@ def test_direction():
 
 
 def test_valley_to_valley():
-    assert main.valley_to_valley([]) == 0
-    assert main.valley_to_valley([1, 1, 1, 1, 1]) == 0
-    assert main.valley_to_valley([1, 1, 4, 1, 1]) == 0
-    assert main.valley_to_valley([4, 1, 1, 1, 1]) == 0
-    assert main.valley_to_valley([1, 1, 1, 1, 4]) == 0
-    assert main.valley_to_valley([4]) == 0
-    assert main.valley_to_valley([1, 1, 1, 4, 4, 1, 1, 1]) == 1
-    assert main.valley_to_valley([1, 1, 4, 4, 4, 1, 1, 1]) == 2
-    assert main.valley_to_valley([1, 4, 1, 1, 4, 1, 1]) == 3
-    assert main.valley_to_valley([1, 4, 1, 1, 1, 1, 4]) == 2
+    def widen(angles):
+        return main.annotate(angles, 0, 0, 0)
 
-    test_piece = [1, 3, 2, 1, 4, 3, 3, 1, 3, 1, 4, 1, 4]
+    assert main.valley_to_valley(widen([])) == 0
+    assert main.valley_to_valley(widen([1, 1, 1, 1, 1])) == 0
+    assert main.valley_to_valley(widen([1, 1, 4, 1, 1])) == 0
+    assert main.valley_to_valley(widen([4, 1, 1, 1, 1])) == 0
+    assert main.valley_to_valley(widen([1, 1, 1, 1, 4])) == 0
+    assert main.valley_to_valley(widen([4])) == 0
+    assert main.valley_to_valley(widen([1, 1, 1, 4, 4, 1, 1, 1])) == 1
+    assert main.valley_to_valley(widen([1, 1, 4, 4, 4, 1, 1, 1])) == 2
+    assert main.valley_to_valley(widen([1, 4, 1, 1, 4, 1, 1])) == 3
+    assert main.valley_to_valley(widen([1, 4, 1, 1, 1, 1, 4])) == 2
+
+    test_piece = widen([1, 3, 2, 1, 4, 3, 3, 1, 3, 1, 4, 1, 4])
     #         **  **
     #       * /\**/\* /\
     #      * /__\/__\/__\
@@ -74,35 +77,57 @@ def test_valley_to_valley():
 
 
 def test_splice():
-    path0 = [1, 2, 3, 4, 5, 6, 7]
-    path1 = [10, 20, 30, 40, 50, 60, 70, 80, 90]
+    path0 = [1, 3, 2, 2, 4, 2, 1, 4, 2, 3, 1, 5]
+    main.verify_pieces([path0])
 
-    def run_test(first1, last1, first2, last2, result):
-        first0 = next(i for i, p in enumerate(path0) if p == first1)
-        last0 = next(i for i, p in enumerate(path0) if p == last1)
-        first1 = next(i for i, p in enumerate(path1) if p == first2)
-        last1 = next(i for i, p in enumerate(path1) if p == last2)
-
+    def run_test(first0, last0, path1, first1, last1, result):
+        main.verify_pieces([path1])
         splice = main.splice_paths(
-            path0=path0,
+            path0=main.annotate(path0, 10, 20, 4),
             first0=first0,
             last0=last0,
             path1=path1,
             first1=first1,
             last1=last1,
         )
-        assert splice == result
-        assert splice[0] == path0[first0] + path1[last1]
+        angles = [t[0] for t in splice]
+        main.verify_pieces([angles])
+        assert angles == result
 
-    run_test(2, 6, 20, 70, [72, 3, 4, 5, 26, 30, 40, 50, 60])
-    run_test(6, 2, 20, 70, [76, 7, 1, 22, 30, 40, 50, 60])
-    run_test(6, 2, 70, 20, [26, 7, 1, 72, 80, 90, 10])
-    run_test(7, 1, 90, 10, [17, 91])
+    run_test(
+        4,
+        1,
+        [1, 2, 2, 3, 2, 2, 1, 4, 4],
+        0,
+        6,
+        [4, 2, 2, 3, 2, 2, 5, 2, 1, 4, 2, 3, 1, 5, 1],
+    )
+    run_test(
+        4,
+        1,
+        [1, 4, 4, 1, 2, 2, 3, 2, 2],
+        3,
+        0,
+        [4, 2, 2, 3, 2, 2, 5, 2, 1, 4, 2, 3, 1, 5, 1],
+    )
 
-    # This edges cases never show up.
-    # firstN and lastN are never equal.
-    run_test(3, 3, 90, 10, [13, 93])
-    run_test(3, 3, 90, 90, [93, 93])
+    run_test(
+        8,
+        6,
+        [1, 2, 2, 2, 1, 4],
+        3,
+        1,
+        [3, 1, 4, 1, 4, 3, 1, 5, 1, 3, 2, 2, 4, 2],
+    )
+
+    run_test(
+        8,
+        6,
+        [2, 1, 4, 1, 2, 2],
+        0,
+        4,
+        [3, 1, 4, 1, 4, 3, 1, 5, 1, 3, 2, 2, 4, 2],
+    )
 
 
 def test_zeroize():
